@@ -1,0 +1,76 @@
+version: '3.3' # Cambiado a 3.3 para máxima compatibilidad
+services:
+  # 1. Servicio de Redis (base de datos de colas)
+  redis:
+    image: redis:7-alpine
+    container_name: redis_queue
+    ports:
+      - "6380:6379"
+    restart: unless-stopped
+  
+  # 2. Worker: Group Manager (Creación de Canales)
+  group_manager:
+    build: 
+      context: . # Usa el Dockerfile en la raíz
+      dockerfile: Dockerfile
+    container_name: telegram_group_manager
+    command: python workers/group_manager/group_manager.py
+    volumes:
+      - ./workers/.env:/app/.env
+      - ./workers/plataforma_session.session:/app/plataforma_session.session
+    environment:
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # 3. Worker: Invitation Creator (Creación de Links de Invitación)
+  invitation_creator:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram_invite_creator
+    command: python workers/channel_manager/invitation_creator.py
+    volumes:
+      - ./workers/.env:/app/.env
+      - ./workers/plataforma_session.session:/app/plataforma_session.session
+    environment:
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # 4. Worker: User Remover (Expulsión de Usuarios)
+  user_remover:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram_user_remover
+    command: python workers/channel_manager/user_remover.py
+    volumes:
+      - ./workers/.env:/app/.env
+      - ./workers/plataforma_session.session:/app/plataforma_session.session
+    environment:
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      - redis
+    restart: unless-stopped
+      
+  # 5. Worker: Metrics Tracker (Rastreo de Métricas y Exportación)
+  metrics_tracker:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram_metrics_tracker
+    command: python workers/metrics_tracker/metrics_tracker.py
+    network_mode: "host"
+    volumes:
+      - ./workers/.env:/app/.env
+      - ./workers/plataforma_session.session:/app/plataforma_session.session
+      - metrics_reports:/app/reportes 
+    restart: unless-stopped
+
+# Volúmenes para persistencia de datos (reportes)
+volumes:
+  metrics_reports:
+    driver: local
