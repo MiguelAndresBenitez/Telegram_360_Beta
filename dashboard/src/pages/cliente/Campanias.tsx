@@ -1,116 +1,131 @@
-import React, { useState } from 'react'
+import React, { useMemo, useEffect, useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useDemo } from '@/demo/DemoProvider'
-import { useToast } from '@/components/Toast'
+import { Megaphone, CheckCircle2, Clock, History, Download, FileText, Loader2 } from 'lucide-react'
 
 export default function CampaniasCliente() {
-  const { state, addCampaña } = useDemo() 
-  const { push } = useToast()
+  const { user, state } = useDemo()
+  const [misPublicidades, setMisPublicidades] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   
-  // No necesitamos filtrar canales ya que el cliente está creando un *nuevo* grupo.
-  const [form, setForm] = useState({ nombre: '', alias: '' }) 
-  const clienteActualCampanias = state.campañas.filter(c => 
-    state.canales.find(x => x.nombre === c.canal)?.cliente === state.clienteActual
-  );
+  const currentTelegramId = useMemo(() => 
+    user?.telegram_id || 
+    user?.id || 
+    state.authenticatedClient?.telegramId || 
+    state.clientes.find(c => c.nombre === state.clienteActual)?.telegramId || 
+    null, 
+  [user, state.clientes, state.clienteActual, state.authenticatedClient]);
 
-  // Manejador de creación de campaña/grupo
-  const handleCreateCampaign = async () => {
-      // 1. Validar campos
-      if (!form.nombre || form.nombre.length < 5) {
-          return push("El Nombre del grupo es obligatorio y debe tener al menos 5 caracteres.");
-      }
-      if (!form.alias || form.alias.length < 5) {
-          return push("El Alias (@) es obligatorio y debe tener al menos 5 caracteres.");
-      }
-      
-      const campaignName = form.nombre;
-      // Normalizamos el alias para la llamada al worker
-      const channelAlias = form.alias.replace(/@/g, ''); 
-
+  useEffect(() => {
+    const cargarCampanasDesdeDB = async () => {
+      if (!currentTelegramId) { setLoading(false); return; }
       try {
-          // 2. LLAMADA AL WORKER DE CREACIÓN DE GRUPOS
-          // (canal base, nombre de campaña, alias)
-          const link = await addCampaña(campaignName, campaignName, channelAlias)
+        const res = await fetch(`http://localhost:8000/campanias/cliente/?telegram_id=${currentTelegramId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const pagadas = data.filter((c: any) => c.gasto_publicitario > 0);
+          setMisPublicidades(pagadas);
+        }
+      } catch (error) { console.error(error); } finally { setLoading(false); }
+    };
+    cargarCampanasDesdeDB();
+  }, [currentTelegramId]);
 
-          // 3. Notificación al usuario (El grupo se crea en el backend)
-          try { 
-              // Usar un método de copia compatible
-              const tempInput = document.createElement('textarea');
-              tempInput.value = link;
-              document.body.appendChild(tempInput);
-              tempInput.select();
-              document.execCommand('copy');
-              document.body.removeChild(tempInput);
-              push(`✅ ¡Grupo creado! Link copiado: ${link}`);
-          } catch (e) {
-              push(`✅ ¡Grupo creado! Copia este link manualmente: ${link}`);
-          }
-      } catch (error) {
-          console.error("Error al crear grupo:", error);
-          
-          // CORRECCIÓN: Manejo de error genérico para el 404/Alias Ocupado
-          let errorMessage = "❌ Error desconocido al crear el grupo. ";
-          if (error instanceof Error && error.message.includes('404')) {
-               errorMessage += "Verifique que el servidor de FastAPI esté corriendo.";
-          } else if (error instanceof Error && error.message.includes('alias')) {
-               errorMessage += `El alias '@${channelAlias}' está probablemente ocupado.`;
-          } else {
-               errorMessage += "Revise el log de Uvicorn/Worker.";
-          }
-          push(errorMessage);
-      }
+  const descargarComprobante = (campaña: any) => {
+    const vent = window.open('', '_blank');
+    if (!vent) return;
+    vent.document.write(`
+      <html>
+        <head>
+          <title>Recibo - ${campaña.alias}</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; color: #0f172a; }
+            .content { max-width: 600px; margin: 0 auto; border: 2px solid #f1f5f9; padding: 40px; border-radius: 32px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.1); }
+            .header { text-align: center; border-bottom: 3px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 30px; }
+            .row { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #f8fafc; font-weight: bold; }
+            .total { font-size: 28px; font-weight: 900; margin-top: 30px; border-top: 3px solid #0f172a; padding-top: 20px; display: flex; justify-content: space-between; }
+          </style>
+        </head>
+        <body onload="window.print()">
+          <div class="content">
+            <div class="header"><h1 style="font-weight: 900; letter-spacing: -1px;">RECIBO DE PUBLICIDAD</h1></div>
+            <div class="row"><span>CLIENTE ID</span> <span>#${currentTelegramId}</span></div>
+            <div class="row"><span>CAMPAÑA</span> <span>${campaña.alias.toUpperCase()}</span></div>
+            <div class="row"><span>FECHA</span> <span>${new Date().toLocaleDateString()}</span></div>
+            <div class="total"><span>TOTAL</span> <span>$${campaña.presupuesto} USD</span></div>
+          </div>
+        </body>
+      </html>
+    `);
+    vent.document.close();
   };
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Campañas</h1>
-      <p className="text-sm text-slate-600">Crea campañas propias y usa links trackeados.</p>
+    <div className="p-4 space-y-8 animate-in fade-in duration-500 text-left bg-white min-h-screen">
+      <div className="border-b-2 border-slate-100 pb-4">
+        <h1 className="text-3xl font-black text-slate-950 tracking-tighter uppercase leading-none">Historial de Publicidad</h1>
+        <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-2 italic">Reporte consolidado de pautas y campañas abonadas</p>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <Card>
-          <CardHeader><CardTitle>Nueva campaña / Creación de grupo</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <label className="text-xs text-slate-600">Nombre del nuevo grupo</label>
-              <Input 
-                value={form.nombre} 
-                placeholder="Ej: Grupo VIP - Verano 2026" 
-                onChange={e=>setForm({ ...form, nombre: e.target.value })} 
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-600">Alias (Identificador público: @)</label>
-              <Input 
-                value={form.alias} 
-                placeholder="ejemplo_vip" 
-                onChange={e=>setForm({ ...form, alias: e.target.value.replace(/@/g, '') })} 
-              />
-            </div>
-            <Button className="w-full" onClick={handleCreateCampaign} disabled={state.isLoading}>
-              Crear Grupo y Generar Link
-            </Button>
-            <p className="text-xs text-slate-500 text-center">* Esto inicia el worker de creación de grupo en el backend.</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Mis campañas</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {clienteActualCampanias.map((c,i)=>(
-              <div key={c.link+i} className="border border-slate-200 rounded-xl p-3 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium">{c.nombre} · {c.canal}</div>
-                  <div className="text-xs text-slate-500 truncate max-w-[40ch]">{c.link}</div>
+      <Card className="border-none shadow-2xl rounded-[32px] overflow-hidden bg-white border border-slate-100">
+        <CardHeader className="bg-slate-50 border-b border-slate-100 p-8">
+          <CardTitle className="text-[11px] font-black uppercase tracking-widest text-slate-950 flex items-center gap-2" style={{ color: '#020617' }}>
+            <FileText size={16} className="text-blue-600" /> DETALLE DE PAUTAS CONFIRMADAS
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y-2 divide-slate-50">
+            {loading ? (
+              <div className="py-24 flex flex-col items-center justify-center gap-4">
+                <Loader2 className="animate-spin text-blue-500" size={40} />
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sincronizando pautas...</p>
+              </div>
+            ) : misPublicidades.map((c, i) => (
+              <div key={i} className="p-8 hover:bg-slate-50/50 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center gap-6">
+                  <div className="h-14 w-14 rounded-2xl flex items-center justify-center bg-[#0f172a] text-white shadow-xl">
+                    <Megaphone size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-950 text-base uppercase tracking-tight leading-none mb-2">{c.alias || 'Campaña Sin Título'}</h3>
+                    <div className="flex items-center gap-4">
+                        <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 uppercase italic">
+                            <Clock size={12} /> {c.fecha_inicio || 'DÍA DE HOY'}
+                        </span>
+                        <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-lg">
+                            <CheckCircle2 size={12} /> CONFIRMADO
+                        </span>
+                    </div>
+                  </div>
                 </div>
-                <Button size="sm" variant="outline" onClick={async ()=>{ try { await navigator.clipboard.writeText(c.link) } catch {}; }}>Copiar</Button>
+
+                <div className="flex items-center gap-10">
+                    <div className="text-right">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">IMPORTE</p>
+                        <p className="text-xl font-black text-slate-950 tracking-tighter leading-none">${c.presupuesto.toLocaleString()} USD</p>
+                    </div>
+                    
+                    <Button 
+                      onClick={() => descargarComprobante(c)}
+                      className="bg-[#0f172a] hover:bg-black text-white rounded-2xl h-14 px-8 flex items-center justify-center gap-3 min-w-[220px] shadow-2xl transition-all active:scale-95 border-none font-black text-[11px] uppercase tracking-widest"
+                    >
+                      <Download size={18} /> DESCARGAR RECIBO
+                    </Button>
+                </div>
               </div>
             ))}
-            {!clienteActualCampanias.length && <p className="text-sm text-slate-500">Aún no creaste campañas.</p>}
-          </CardContent>
-        </Card>
-      </div>
+
+            {!loading && misPublicidades.length === 0 && (
+              <div className="py-32 text-center">
+                <History size={48} className="text-slate-200 mx-auto mb-5" />
+                <h3 className="text-slate-900 font-black tracking-tight uppercase">Sin historial de pagos</h3>
+                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mt-2">No se encontraron registros de pautas publicitarias contratadas</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

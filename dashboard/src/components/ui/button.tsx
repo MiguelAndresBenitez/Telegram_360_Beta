@@ -30,10 +30,22 @@ function sizeClasses(s: Size | undefined) {
 // Usamos export const y React.forwardRef para que sea el único punto de exportación
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    // Desestructuramos 'asChild' para sacarla de 'props'
-    { children, className = '', variant = 'default', size = 'md', asChild = false, ...props }, 
+    // Desestructuramos 'asChild' para sacarla de 'props' y nos aseguramos que sean del tipo correcto
+    { 
+      children, 
+      className = '', 
+      variant = 'default', 
+      size = 'md', 
+      asChild = false, 
+      ...props 
+    }, 
     ref
   ) => {
+    
+    // Convertimos las variables al tipo correcto, aunque los defaults ya deberían serlo.
+    // Esto es para asegurar que TypeScript no se queje si se pasan strings sin querer
+    const ComponentVariant = variant as Variant;
+    const ComponentSize = size as Size;
     
     // Elegimos el componente a renderizar
     const Comp = asChild ? Slot : "button";
@@ -41,7 +53,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <Comp
         ref={ref}
-        className={`${variantClasses(variant)} rounded-xl ${sizeClasses(size)} ${className}`}
+        // Usamos las variables locales tipadas
+        className={`${variantClasses(ComponentVariant)} rounded-xl ${sizeClasses(ComponentSize)} ${className}`} 
         {...props} 
       >
         {children}

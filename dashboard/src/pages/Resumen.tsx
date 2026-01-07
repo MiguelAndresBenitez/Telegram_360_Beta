@@ -1,232 +1,233 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { TrendingUp, DollarSign, Wallet, Link2, Plus } from 'lucide-react'
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Bar, BarChart } from 'recharts'
-import { useDemo, useKPIs } from '@/demo/DemoProvider'
+import { TrendingUp, Wallet, Bell, CircleDollarSign, Loader2, Check } from 'lucide-react'
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import { useDemo } from '@/demo/DemoProvider'
 import { getMetricsResumen } from '@/api/index'
-import { Modal } from '@/components/Modal'
-import { useToast } from '@/components/Toast'
-import { downloadCSV } from '@/utils/csv'
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'
 
-// Definición del tipo de periodo
 type Periodo = 'day' | 'week' | 'month' | 'year';
 
 export default function Resumen() {
-  const { state, addCliente } = useDemo() 
-  const { gananciaHoy, gastoHoy, balanceBilletera } = useKPIs()
-  const { push } = useToast()
-  const navigate = useNavigate();
-
-  const [filter, setFilter] = useState('')
-  const [openNew, setOpenNew] = useState(false)
-  const [newName, setNewName] = useState('')
-
-  // Control del periodo y datos dinámicos
-  const [periodo, setPeriodo] = useState<Periodo>('day');
-  const [datosDinamicos, setDatosDinamicos] = useState<any[]>([]); 
-  const [cargandoMetricas, setCargandoMetricas] = useState(false);
+  const { state } = useDemo() 
+  const navigate = useNavigate()
   
-  const filtered = useMemo(() => state.clientes.filter(c => c.nombre.toLowerCase().includes(filter.toLowerCase())), [state.clientes, filter])
+  const [periodo, setPeriodo] = useState<Periodo>('day')
+  const [datosAcumulados, setDatosAcumulados] = useState<any[]>([]) 
+  const [ingresosTotales, setIngresosTotales] = useState({ ars: 0, usd: 0, crypto: 0 })
+  const [loading, setLoading] = useState(true)
 
-  // Lógica de carga de métricas para la GRÁFICA DE RESUMEN
   useEffect(() => {
-    async function fetchMetrics() {
-        setCargandoMetricas(true);
+    async function loadDashboardData() {
+        setLoading(true)
         try {
-            // 🚨 CAMBIO: CALCULAR LÍMITE DE TIEMPO
-            const timeLimit = calculateTimeLimit(periodo);
-            
-            // 🚨 CAMBIO: ENVIAR LÍMITE DE TIEMPO A LA API
-            const apiMetricas = await getMetricsResumen(periodo, 'all', 'all', timeLimit);
-            
-            const newMetricas = apiMetricas.map((m: any) => ({
-                fecha: m.fecha,
-                "Nuevos Usuarios": m.nuevos_usuarios, 
-            }));
-            
-            setDatosDinamicos(newMetricas); 
+            const resT = await fetch(`http://localhost:8000/transacciones/`)
+            if (resT.ok) {
+                const txs = await resT.json()
+                const totales = txs.reduce((acc: any, curr: any) => {
+                    if (curr.estado?.toLowerCase() !== 'completada' && curr.estado?.toLowerCase() !== 'success') return acc;
+                    const monto = Number(curr.monto) || 0
+                    const metodo = String(curr.metodo_pago || '').toLowerCase()
+                    if (metodo.includes('mercadopago')) acc.ars += monto
+                    else if (metodo.includes('stripe')) acc.usd += monto
+                    else if (metodo.includes('coinbase') || metodo.includes('cripto')) acc.crypto += monto
+                    return acc
+                }, { ars: 0, usd: 0, crypto: 0 })
+                setIngresosTotales(totales)
+            }
 
+            const timeLimit = calculateTimeLimit(periodo)
+            const apiMetricas = await getMetricsResumen(periodo, 'all', 'all', timeLimit)
+            
+            const dataCompleta = fillMissingData(apiMetricas.map((m: any) => ({
+                fecha: m.fecha,
+                neto: m.nuevos_usuarios, 
+            })), periodo);
+
+            let stockActual = 0;
+            const dataFinal = dataCompleta.map(d => {
+                stockActual += d.neto;
+                return { 
+                    fecha: d.fecha, 
+                    cantidad: Math.max(0, stockActual),
+                    label: formatDate(d.fecha, periodo)
+                };
+            });
+
+            setDatosAcumulados(dataFinal) 
         } catch (e) {
-            console.error("Error al recargar métricas por periodo:", e);
-             setDatosDinamicos([]); 
+            console.error("Error en Resumen:", e)
         } finally {
-            setCargandoMetricas(false);
+            setLoading(false)
         }
     }
-    
-    fetchMetrics();
-  }, [periodo]); 
+    loadDashboardData()
+  }, [periodo])
 
-  const metricasData = datosDinamicos;
+  const retirosPendientes = useMemo(() => 
+    state.retiros.filter(r => r.estado === "Pendiente"), 
+  [state.retiros])
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+    <div className="space-y-6 animate-in fade-in duration-500 text-left pb-10">
+      <div className="flex justify-between items-end border-b-2 border-slate-100 pb-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Resumen Ejecutivo</h1>
-          <p className="text-sm text-slate-600">Métricas clave y estado de la plataforma.</p>
-        </div>
-        <div className="flex gap-2">
-          {/* Botón de Nuevo Cliente (modal) */}
-          <Button onClick={()=>setOpenNew(true)}><Plus className="mr-2 h-4 w-4"/>Nuevo cliente</Button>
+          <h1 className="text-2xl font-black tracking-tighter text-slate-950 uppercase leading-none">Resumen Ejecutivo</h1>
+          <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-2 italic">Consolidado general de ingresos y stock de audiencia.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
-        <Kpi title="Ganancia de hoy" value={gananciaHoy} icon={<TrendingUp className="h-5 w-5" />} delta={+12}/>
-        <Kpi title="Gasto publicitario" value={gastoHoy} icon={<DollarSign className="h-5 w-5" />} delta={-5}/>
-        <Kpi title="Balance billetera" value={balanceBilletera} icon={<Wallet className="h-5 w-5" />} muted/>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KpiDivisa title="Total Pesos (MP)" value={ingresosTotales.ars} divisa="ARS" icon={<CircleDollarSign className="text-blue-600" />} />
+        <KpiDivisa title="Total Dólares (Stripe)" value={ingresosTotales.usd} divisa="USD" icon={<TrendingUp className="text-emerald-600" />} />
+        <KpiDivisa title="Total USDT (Crypto)" value={ingresosTotales.crypto} divisa="USDT" icon={<Wallet className="text-amber-600" />} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-        {/* GRÁFICA DE RESUMEN GENERAL */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between flex-wrap gap-2">
-              <span>📈 Crecimiento de Usuarios ({periodo})</span>
-              
-              <div className="flex gap-2 text-sm font-normal">
-                <div className="flex gap-1">
-                  {['day', 'week', 'month', 'year'].map(p => (
-                      <Button 
-                          key={p} 
-                          size="sm" 
-                          variant={periodo === p ? 'default' : 'outline'}
-                          onClick={() => setPeriodo(p as Periodo)}
-                          disabled={cargandoMetricas}
-                      >
-                          {p.charAt(0).toUpperCase() + p.slice(1)}
-                      </Button>
-                  ))}
-                </div>
-              </div>
-            </CardTitle>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 border-none shadow-2xl rounded-[32px] overflow-hidden bg-white border border-slate-100">
+          <CardHeader className="flex flex-row items-center justify-between bg-slate-50/50 border-b border-slate-100 px-6 py-4">
+            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-slate-500" style={{ color: '#020617' }}>Evolución Global de Audiencia</CardTitle>
+            <div className="flex gap-1 bg-white p-1.5 rounded-2xl shadow-inner border border-slate-200">
+                {[{k:'day', l:'7D'}, {k:'week', l:'8S'}, {k:'month', l:'6M'}, {k:'year', l:'5A'}].map((p) => (
+                    <Button 
+                        key={p.k} size="sm" variant={periodo === p.k ? 'default' : 'ghost'}
+                        className={`text-[10px] h-8 px-4 uppercase font-black rounded-xl transition-all ${periodo === p.k ? 'bg-[#0f172a] text-white shadow-md' : 'text-slate-500'}`}
+                        onClick={() => setPeriodo(p.k as Periodo)}
+                    >
+                        {p.l}
+                    </Button>
+                ))}
+            </div>
           </CardHeader>
-          <CardContent className="h-64">
-            {cargandoMetricas ? (
-                <div className="h-full grid place-items-center text-slate-500 text-sm">Cargando métricas...</div>
-            ) : metricasData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={metricasData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="fecha" 
-                          // 🚨 CAMBIO: Aplicar el formateador de fechas
-                          tickFormatter={formatDate} 
-                          angle={periodo === 'day' ? -30 : 0} 
-                          textAnchor={periodo === 'day' ? 'end' : 'middle'} 
-                        />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="Nuevos Usuarios" stroke="#3b82f6" strokeWidth={2} /> 
-                    </LineChart>
-                </ResponsiveContainer>
+          <CardContent className="h-72 pt-10 px-6">
+            {loading ? (
+                <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-slate-200" size={32}/></div>
             ) : (
-                <div className="h-full grid place-items-center text-slate-500 text-sm">
-                    No hay datos disponibles para el periodo seleccionado.
-                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={datosAcumulados} margin={{ bottom: 25 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#cbd5e1" />
+                        <XAxis 
+                            dataKey="label" 
+                            tick={{fontSize: 10, fill: '#1e293b', fontWeight: '900'}} 
+                            axisLine={false}
+                            tickLine={false}
+                            interval={0}
+                            dy={10}
+                        />
+                        <YAxis tick={{fontSize: 10, fill: '#1e293b', fontWeight: '900'}} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)', fontWeight: '900'}} />
+                        <Area 
+                            type="stepAfter" 
+                            dataKey="cantidad" 
+                            stroke="#2563eb" 
+                            strokeWidth={4} 
+                            fillOpacity={0.1} 
+                            fill="#2563eb" 
+                            name="Total Usuarios"
+                            dot={{ r: 4, fill: '#2563eb', stroke: '#fff' }} 
+                        />
+                    </AreaChart>
+                </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
 
-        {/* GRÁFICA DE RETIROS */}
-        <Card>
-          <CardHeader><CardTitle>Solicitudes de retiro (semana)</CardTitle></CardHeader>
-          <CardContent className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={state.retiros}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="cliente" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="monto" />
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="flex gap-2 mt-3 flex-wrap">
-              {state.retiros.map((s) => (
-                <Badge key={s.cliente} variant={s.estado === "Pagado" ? "default" : "secondary"}>{s.cliente}: {s.monto.toLocaleString('es-AR')}</Badge>
-              ))}
-            </div>
+        <Card className="border-none shadow-2xl rounded-[32px] overflow-hidden bg-white flex flex-col border border-slate-100">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/50 p-6">
+            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2" style={{ color: '#020617' }}>
+                <Bell size={14} className="text-blue-500" /> Solicitudes de Retiro
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 p-0 overflow-y-auto max-h-[340px]">
+            {retirosPendientes.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-12 text-center text-slate-400">
+                    <Check className="mb-2 text-emerald-500" size={24} />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Al día</p>
+                </div>
+            ) : retirosPendientes.map((r, i) => (
+                <div key={i} className="p-5 hover:bg-slate-50 transition-all flex items-center justify-between border-b border-slate-50 last:border-0">
+                    <div className="text-left">
+                        <p className="text-sm font-black text-slate-950 uppercase tracking-tight leading-none mb-1">Solicitud de Retiro</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase italic">Canal: {r.metodo}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-base font-black text-blue-600">${Number(r.monto).toLocaleString('es-AR')}</p>
+                        <Badge className="text-[9px] h-5 bg-amber-50 text-amber-700 border-none uppercase font-black px-3 rounded-lg shadow-sm">Pendiente</Badge>
+                    </div>
+                </div>
+            ))}
           </CardContent>
+          <div className="p-4 border-t border-slate-100 bg-slate-50/30">
+            <Button 
+                className="w-full bg-[#0f172a] hover:bg-black text-white text-[11px] font-black uppercase tracking-[0.2em] h-14 rounded-2xl shadow-xl transition-all active:scale-95" 
+                onClick={() => navigate('/pagos')}
+            >
+                GESTIONAR PAGOS
+            </Button>
+          </div>
         </Card>
       </div>
-      
-      {/* MODAL DE CREACIÓN DE CLIENTE */}
-      <Modal open={openNew} onClose={()=>setOpenNew(false)} title="Nuevo cliente">
-        <div>
-          <label className="text-xs text-slate-600">Nombre del cliente</label>
-          <Input placeholder="Ej: Tips Master" value={newName} onChange={e=>setNewName(e.target.value)} />
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={()=>setOpenNew(false)}>Cancelar</Button>
-          <Button onClick={()=>{ addCliente(newName || 'Cliente nuevo'); setOpenNew(false); setNewName('') }}>Crear</Button>
-        </div>
-      </Modal>
-
     </div>
   )
 }
 
-function Kpi({ title, value, icon, delta, muted }:{ title: string; value: number; icon: React.ReactNode; delta?: number; muted?: boolean }) {
-  const isUp = (delta ?? 0) >= 0
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-          <span className={`h-8 w-8 grid place-items-center rounded-xl ${muted ? 'bg-slate-100' : 'bg-emerald-100'}`}>{icon}</span>
-          {title}
-        </CardTitle>
-        {!muted && typeof delta === 'number' && (<Badge variant={isUp ? 'default' : 'secondary'}>{isUp ? '+' : ''}{delta}%</Badge>)}
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">$ {value.toLocaleString('es-AR')}</div>
-        {!muted && (<p className="text-xs text-slate-500 mt-1">vs día anterior</p>)}
-      </CardContent>
-    </Card>
-  )
+function KpiDivisa({ title, value, divisa, icon }: { title: string, value: number, divisa: string, icon: React.ReactNode }) {
+    return (
+        <Card className="border-none shadow-xl rounded-[28px] bg-white overflow-hidden border border-slate-50 text-left">
+            <CardContent className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                    <div className="h-10 w-10 bg-slate-50 rounded-2xl flex items-center justify-center shadow-inner">{icon}</div>
+                    <Badge className="text-[10px] font-black uppercase bg-slate-100 text-slate-600 border-none px-3 py-1 rounded-full">{divisa}</Badge>
+                </div>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1" style={{ color: '#020617' }}>{title}</p>
+                <div className="text-3xl font-black text-slate-950 mt-1 tracking-tighter leading-none">
+                    {divisa === 'USDT' ? `${value.toLocaleString('es-AR')}` : `$ ${value.toLocaleString('es-AR')}`}
+                </div>
+            </CardContent>
+        </Card>
+    )
 }
-// --------------------------------------------------------
-// --- LÓGICA DE FECHAS (DEBE IR AL FINAL DEL ARCHIVO) ---
-// --------------------------------------------------------
-function calculateTimeLimit(periodo: 'day' | 'week' | 'month' | 'year'): string {
+
+function calculateTimeLimit(periodo: Periodo): string {
     const today = new Date();
     let limitDate = new Date(today);
-
     switch (periodo) {
-        case 'day':
-            limitDate.setDate(today.getDate() - 7); 
-            break;
-        case 'week':
-            limitDate.setDate(today.getDate() - (8 * 7)); 
-            break;
-        case 'month':
-            limitDate.setFullYear(today.getFullYear(), today.getMonth() - 12); 
-            break;
-        case 'year':
-            limitDate.setFullYear(today.getFullYear() - 5); 
-            break;
+        case 'day': limitDate.setDate(today.getDate() - 7); break;   
+        case 'week': limitDate.setDate(today.getDate() - 56); break; 
+        case 'month': limitDate.setMonth(today.getMonth() - 6); break; 
+        case 'year': limitDate.setFullYear(today.getFullYear() - 5); break; 
     }
+    limitDate.setHours(0, 0, 0, 0); 
     return limitDate.toISOString(); 
 }
-function formatDate(tickItem: string | number): string {
-    const date = new Date(tickItem);
-    
-    if (isNaN(date.getTime()) || date.getFullYear() === 1970) {
-        return String(tickItem);
+
+function formatDate(tickItem: string, periodo: Periodo): string {
+    const date = new Date(tickItem + 'T00:00:00Z');
+    if (periodo === 'year') return date.toLocaleDateString('es-AR', { year: 'numeric' }); 
+    if (periodo === 'month') return date.toLocaleDateString('es-AR', { month: 'short' }).replace('.','').toUpperCase(); 
+    return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.','').toUpperCase(); 
+}
+
+function fillMissingData(data: any[], periodo: Periodo): any[] {
+    const map: Record<string, any> = {};
+    data.forEach(item => { 
+        const key = new Date(item.fecha + 'T00:00:00Z').toISOString().split('T')[0];
+        map[key] = item; 
+    });
+    const finalArray = [];
+    let current = new Date(calculateTimeLimit(periodo));
+    const end = new Date();
+    if (periodo === 'month') current.setDate(1);
+    if (periodo === 'year') { current.setMonth(0); current.setDate(1); }
+    while (current <= end) {
+        const key = current.toISOString().split('T')[0];
+        finalArray.push(map[key] || { fecha: key, neto: 0 });
+        if (periodo === 'day') current.setDate(current.getDate() + 1);
+        else if (periodo === 'week') current.setDate(current.getDate() + 7);
+        else if (periodo === 'month') current.setMonth(current.getMonth() + 1);
+        else if (periodo === 'year') current.setFullYear(current.getFullYear() + 1);
     }
-    
-    if (date.toLocaleDateString('es-AR', { hour: '2-digit', minute: '2-digit' }) !== '24:00') {
-        return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
-    }
-    
-    if (date.getMonth() !== new Date().getMonth() || date.getDate() !== 1) {
-        return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
-    }
-    
-    return date.toLocaleDateString('es-AR', { year: 'numeric', month: 'short' });
+    return finalArray;
 }

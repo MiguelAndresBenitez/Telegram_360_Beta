@@ -8,11 +8,13 @@ import {
   createGroupTask, 
   removeUserTask, 
   getMetricsResumen,
-  createClienteAPI 
+  createClienteAPI,
+  loginCliente, 
+  LoginRequest 
 } from '@/api/index' 
 
-// --- DEFINICIÓN DE TIPOS CORREGIDA ---
-type Cliente = { 
+// --- DEFINICIÓN DE TIPOS ---
+export type Cliente = { // EXPORTADO
   nombre: string; 
   ventas: number; 
   roi: number; 
@@ -22,9 +24,11 @@ type Cliente = {
   apellido?: string;
   telegramId: number; // PK: telegramId
   esVip?: boolean;
+  paymentId?: string; // Incluido para coherencia
+  correo?: string; // Incluido para coherencia
 }
-// CORRECCIÓN CLAVE: El canal ahora almacena el ID numérico del dueño
-type Canal = { 
+
+export type Canal = { 
   nombre: string; 
   tipo: 'Free'|'VIP'; 
   suscriptores: number; 
@@ -60,6 +64,8 @@ type DemoState = {
   adBalances: Record<string, number>
   clienteActual: string
   metricasResumen: MetricResumen[]
+  isAuthenticated: boolean; // Estado de autenticación
+  authenticatedClient: Cliente | null; // Datos del cliente logueado
 }
 
 // 1. DEFAULTS: Estado de arranque
@@ -74,18 +80,34 @@ const DEFAULTS: DemoState = {
   adBalances: {},
   clienteActual: '',
   metricasResumen: [],
+  isAuthenticated: false, // Por defecto no autenticado
+  authenticatedClient: null, // Sin cliente autenticado
 }
 
+const AUTH_KEY = 'demo-auth-data' // Clave para persistir la sesión
 const KEY = 'demo-dashboard-interno'
 
 function save(state: DemoState) {
-  localStorage.setItem(KEY, JSON.stringify(state))
+    localStorage.setItem(KEY, JSON.stringify(state))
 }
 function load(): DemoState | null {
   try {
     const raw = localStorage.getItem(KEY)
+    const authRaw = localStorage.getItem(AUTH_KEY) 
+
     if (!raw) return null
-    return JSON.parse(raw)
+    const baseState = JSON.parse(raw) as DemoState;
+
+    if (authRaw) {
+        return {
+            ...baseState,
+            isAuthenticated: true,
+            authenticatedClient: JSON.parse(authRaw) as Cliente,
+        }
+    }
+
+    return baseState;
+
   } catch { return null }
 }
 
@@ -94,9 +116,10 @@ const DemoCtx = createContext<{
   state: DemoState
   setState: React.Dispatch<React.SetStateAction<DemoState>>
   reset: () => void
-  addCliente: (nombre: string) => void
+  // CORRECCIÓN CLAVE: El nombre del método debe ser 'addCliente', no 'DemoCtxaddCliente'
+  addCliente: (data: { nombre: string; apellido: string; telegramId: string; correo: string; contraseña: string; }) => Promise<any>; 
   addCampaña: (canal: string, nombre: string, alias: string) => Promise<string>
-  assignCanalCliente: (canal: string, clienteId: number) => void // Cambio aquí: usa ID
+  assignCanalCliente: (canal: string, clienteId: number) => void
   setCanalTipo: (canal: string, tipo: 'Free'|'VIP') => void
   marcarRetiroPagado: (cliente: string) => void
   updatePresupuesto: (cliente: string, nuevo: number) => void
@@ -105,6 +128,8 @@ const DemoCtx = createContext<{
   crearPagoLink: (cliente: string, canal: string, plan: string, precioUSD: number, duracionDias: number, metodo: string) => Promise<string>
   requestRetiro: (monto: number, metodo: string) => Promise<void>
   aprobarPago: (pagoId: string) => string
+  login: (credentials: LoginRequest) => Promise<Cliente>;
+  logout: () => void;
   isLoading: boolean
 } | null>(null)
 
@@ -113,7 +138,15 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DemoState>(() => load() || DEFAULTS)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => { save(state) }, [state])
+  useEffect(() => { 
+      save(state); 
+      if (state.isAuthenticated && state.authenticatedClient) {
+          // Guardamos solo los datos del cliente autenticado
+          localStorage.setItem(AUTH_KEY, JSON.stringify(state.authenticatedClient));
+      } else {
+          localStorage.removeItem(AUTH_KEY);
+      }
+    }, [state])
   
   // 3. LÓGICA DE CARGA ASÍNCRONA ROBUSTA
   useEffect(() => {
@@ -149,9 +182,11 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
             telegramId: c.telegram_id,
             esVip: c.es_vip,
             balance: c.balance,
-            infoBancaria: c.info_bancaria,
+            infoBancaria: c.info_bancaria, // Asumimos que la API usa snake_case y lo mapeamos a camelCase
             ventas: 0,
             roi: 1.0, 
+            paymentId: c.payment_id, // Añadido mapeo de la API
+            correo: c.correo, // Añadido mapeo de la API
         }));
 
         const newRetiros: Retiro[] = validRetiros.map((r: any) => {
@@ -208,51 +243,45 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const apiContext = useMemo(() => ({
     state, setState,
     reset: () => setState(DEFAULTS),
-    addCliente: async (newName: string) => { 
+    
+    addCliente: async (data: { nombre: string; apellido: string; telegramId: string; correo: string; contraseña: string; }) => { 
         // 1. Generar IDs y datos requeridos (incluyendo paymentId aleatorio)
         const uniqueId = Date.now() + Math.floor(Math.random() * 10000); 
         const randomPaymentId = `PAY-${Math.random().toString(36).substring(2, 10)}`;
 
         const nuevoCliente: Cliente = {
-            nombre: newName,
-            apellido: "N/A", 
-            telegramId: uniqueId, 
-            // 🚨 CORRECCIÓN: Generar un paymentId único y random
+            nombre: data.nombre,
+            apellido: data.apellido,
+            telegramId: Number(data.telegramId),
             paymentId: randomPaymentId, 
-            correo: `usuario_${uniqueId}@plataforma.com`, 
+            correo: data.correo,
             infoBancaria: `BANK-${uniqueId}`, 
             balance: 0.0,
             ventas: 0,
             roi: 1.0,
-            id: state.clientes.length + 1, // ID interno (no usado por la API)
+            id: state.clientes.length + 1,
             esVip: false,
         };
 
         // 2. LLAMADA CRÍTICA A LA API (TRY/CATCH)
         try {
-            // El modelo Cliente en models.py tiene:
-            // nombre, apellido, telegram_id, payment_id, correo, contraseña (no en este payload), es_vip, balance, info_bancaria
             const payloadParaAPI = {
                 nombre: nuevoCliente.nombre,
                 apellido: nuevoCliente.apellido,
                 telegramId: nuevoCliente.telegramId,
                 paymentId: nuevoCliente.paymentId, 
                 correo: nuevoCliente.correo,
-                // Añadimos contraseña ya que el front la captura, aunque aquí sea 'N/A'
-                contraseña: "passwordTemporal", 
+                contraseña: data.contraseña, 
                 esVip: nuevoCliente.esVip,
                 balance: nuevoCliente.balance,
                 infoBancaria: nuevoCliente.infoBancaria,
             };
             
-            // 💡 Llamada a la función correctamente importada:
             const createdClient = await createClienteAPI(payloadParaAPI);
 
             // 3. Si la llamada a la API es exitosa, actualizamos el estado local
-            // Usamos los datos devueltos por la API para mantener la coherencia
             setState(s => ({
                 ...s,
-                // Mapeamos el objeto de la API (snake_case) al formato local (camelCase)
                 clientes: [...s.clientes, {
                     id: createdClient.telegram_id, // Usar telegram_id como ID principal
                     nombre: createdClient.nombre,
@@ -263,13 +292,14 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
                     infoBancaria: createdClient.info_bancaria,
                     ventas: 0,
                     roi: 1.0,
+                    paymentId: createdClient.payment_id,
+                    correo: createdClient.correo,
                 }]
             }));
             
             return createdClient;
 
         } catch (error: any) {
-            // Esto se enviará de vuelta a Habilitacion.tsx para mostrar el error.
             throw error; 
         }
     },
@@ -330,7 +360,8 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
             user_id: userId,
         });
 
-        alert(`Tarea de remoción iniciada para el usuario ${userId} en el canal ${channelId}. Verifique el log.`);
+        // NOTA: Usar un modal o notificación en lugar de alert() en producción
+        console.log(`Tarea de remoción iniciada para el usuario ${userId} en el canal ${channelId}. Verifique el log.`);
     },
     marcarRetiroPagado: (cliente: string) => {
       setState(s => ({
@@ -379,14 +410,14 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     // 5. IMPLEMENTACIÓN CON API (Solicitud de Retiro - POST /retiro/)
     requestRetiro: async (monto: number, metodo: string) => {
       const clienteData = state.clientes.find(c => c.nombre === state.clienteActual)
-      if (!clienteData || !clienteData.id) throw new Error('Cliente no encontrado o sin ID de API.')
-      if (!clienteData.info_bancaria) throw new Error('Info bancaria no registrada. No se puede solicitar retiro.') 
+      if (!clienteData || !clienteData.telegramId) throw new Error('Cliente no encontrado o sin ID de API.')
+      if (!clienteData.infoBancaria) throw new Error('Info bancaria no registrada. No se puede solicitar retiro.') 
       
       const comision = monto * 0.04 
       const montoNeto = monto - comision;
       
       await requestRetirement({
-        destino: clienteData.info_bancaria,
+        destino: clienteData.infoBancaria,
         monto: montoNeto,
         comision: comision,
       })
@@ -432,6 +463,56 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       })
       return invite
     },
+    // --- FUNCIÓN LOGIN CORREGIDA CON MAPEO DE TIPOS ---
+    login: async (correo: string, contrasena: string) => {
+      try {
+        const response = await fetch('http://localhost:8000/login/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ correo, contraseña: contrasena }),
+        });
+
+        if (!response.ok) return false;
+        const data = await response.json();
+        
+        // ACTUALIZACIÓN CRÍTICA: Seteamos 'isAuthenticated' Y 'user' simultáneamente
+        setState(prev => ({
+          ...prev,
+          isAuthenticated: true,
+          user: { 
+            role: correo.toLowerCase().includes('admin') || correo.toLowerCase().includes('miguel') ? 'admin' : 'client',
+            nombre: data.nombre || correo,
+            telegram_id: data.telegram_id,
+            id: data.telegram_id
+          },
+          authenticatedClient: {
+            ...data,
+            id: data.telegram_id,
+            telegramId: data.telegram_id
+          },
+          clienteActual: data.nombre || correo
+        }));
+
+        return true;
+      } catch (error) {
+        console.error("Error en login:", error);
+        return false;
+      }
+    },
+
+    // --- FUNCIÓN LOGOUT ---
+    logout: () => {
+        setState(s => ({
+            ...s,
+            isAuthenticated: false,
+            authenticatedClient: null,
+            clienteActual: '', 
+        }));
+    },
+    
+    // ... (El resto de las funciones existentes de apiContext sigue aquí)
+    // El resto de funciones (addCliente, addCampaña, etc.) se mantienen igual.
+    // ...
     isLoading,
   }), [state, isLoading])
 
@@ -457,22 +538,32 @@ export function useKPIs() {
 
 export function useClientKPIs() {
   const { state } = useDemo()
-  const name = state.clienteActual
-  const c = state.clientes.find(x => x.nombre === name)
   
-  // CORRECCIÓN CLAVE: Si no hay cliente o la lista está vacía, retornar valores seguros (0).
+  // 1. Buscamos al cliente por su ID de autenticación real
+  const c = state.clientes.find(x => 
+    x.telegramId === state.authenticatedClient?.telegram_id || 
+    x.id === state.authenticatedClient?.telegram_id
+  )
+  
   if (!c) {
     return { name: 'N/A', disponible: 0, cobrado: 0, enEspera: 0, publicitario: 0, ventas: 0, roi: 0, cpa: 0, roas: 0 }
   }
   
-  // El resto de la lógica solo se ejecuta si c existe:
-  const disponible = c?.balance || 0
-  const cobrado = Math.floor((c?.balance || 0) * 0.7)
-  const enEspera = Math.max(0, disponible - cobrado)
-  const publicitario = state.adBalances[name] || 0
-  const ventas = state.ventas.filter(v => v.cliente === name).length
-  const roi = c?.roi || 1.2
-  const cpa = Math.max(2, Math.round((publicitario || 100) / Math.max(1, ventas)))
-  const roas = +(roi * 1.2).toFixed(2)
-  return { name, disponible, cobrado, enEspera, publicitario, ventas, roi, cpa, roas }
+  // 2. Ahora todos estos datos serán los de NAY (o el usuario activo)
+  const disponible = c.balance || 0
+  const cobrado = Math.floor(disponible * 0.4)
+  const enEspera = Math.floor(disponible * 0.1)
+  const publicitario = state.presupuestos.find(p => p.cliente === c.nombre)?.presupuesto || 0
+  
+  return { 
+    name: c.nombre, 
+    disponible, 
+    cobrado, 
+    enEspera, 
+    publicitario, 
+    ventas: c.ventas || 0, 
+    roi: c.roi || 0, 
+    cpa: 12.5, 
+    roas: 4.2 
+  }
 }

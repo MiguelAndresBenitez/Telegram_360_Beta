@@ -2,8 +2,25 @@
 
 // Simula la URL de tu API de FastAPI
 const API_BASE = 'http://localhost:8000'; 
+const API_PAGOS_URL = "http://localhost:8001";
 
 // --- Tipos de Datos ---
+
+// 💡 Nuevo tipo para el Cliente (traído de models.py)
+export interface Cliente {
+  telegram_id: number;
+  nombre: string;
+  apellido: string;
+  correo: string | null;
+  es_vip: boolean;
+  // Este es el campo que contiene el presupuesto/saldo del cliente
+  balance: number; 
+  vip_vence?: string; // Fecha en formato string si no es nula
+  info_bancaria: string | null;
+  payment_id: string | null;
+  contraseña: string | null;
+}
+
 type TransaccionPayload = {
   monto: number; estado: string; metodo_pago: string; actor: 'Cliente';
   actor_id: number; timestamp: string; origen: string;
@@ -11,19 +28,27 @@ type TransaccionPayload = {
 
 type RetiroPayload = {
   destino: string; monto: number; comision: number; timestamp: string;
-  estado: 'Pendiente'|'Aprobado'|'Rechazado';
+  estado: 
+  'Pendiente'|'Aprobado'|'Rechazado';
+}
+
+// --- Nuevo tipo para la solicitud de Login ---
+export interface LoginRequest {
+  correo: string;
+  contraseña: string;
 }
 
 // -----------------------------------------------------
 // --- FUNCIONES GET: Lectura de Datos de la DB ---
 // -----------------------------------------------------
 
-export async function getClientesData() {
+// 💡 Actualización: La función ahora está tipada para devolver un array de Cliente
+export async function getClientesData(): Promise<Cliente[]> {
   const response = await fetch(`${API_BASE}/clientes/`);
   if (!response.ok) {
     throw new Error('Error de API al obtener clientes: ' + response.status);
   }
-  return response.json();
+  return response.json() as Promise<Cliente[]>;
 }
 
 export async function getRetirosData() {
@@ -47,8 +72,8 @@ export async function getMetricsResumen(
   try {
     const params: Record<string, any> = { group_by: groupBy };
 
-    if (cliente_id !== 'all') {
-        params.cliente_id = cliente_id;
+    if (cliente_id !== 'all' && cliente_id !== undefined && cliente_id !== null) {
+        params.cliente_telegram_id = cliente_id; 
     }
 
     if (canal_type !== 'all') {
@@ -118,6 +143,34 @@ export async function getClientChannelMembersDetail(clienteId: number): Promise<
 // -----------------------------------------------------
 
 /**
+ * 💡 NUEVA FUNCIÓN: [PUT /cliente/balance/] Actualiza el balance del cliente.
+ * El balance se usa como presupuesto.
+ */
+export async function updateClienteBalance(telegram_id: number, nuevo_balance: number) {
+    
+    // Usamos el endpoint PUT /cliente/balance/
+    const response = await fetch(`${API_BASE}/cliente/balance/?telegram_id=${telegram_id}&nuevo_balance=${nuevo_balance}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        // No se necesita body si pasamos los parámetros por query string
+    });
+
+    if (!response.ok) {
+        let error_message = `Error de API: ${response.status} ${response.statusText}`;
+        try {
+            // Intentamos leer el JSON del error (donde FastAPI pone el 'detail')
+            const error_data = await response.json();
+            error_message = error_data.detail || error_message; 
+        } catch (e) {
+            // Si no es JSON, usamos el error estándar
+        }
+        throw new Error(error_message); 
+    }
+
+    return response.json();
+}
+
+/**
  * [PUT /canal/] Actualiza el dueño (owner_id) de un canal.
  * @param canalId ID único del canal de Telegram.
  * @param ownerTelegramId ID del cliente que será el nuevo dueño.
@@ -156,6 +209,37 @@ export async function updateCanalOwner(canalId: number, ownerTelegramId: number)
 // -----------------------------------------------------
 // --- FUNCIONES POST: Mutación y Tareas de Workers ---
 // -----------------------------------------------------
+
+/**
+ * [POST /login/] Autentica a un Cliente o Admin.
+ * FIX: Se envía como FormData para cumplir con OAuth2PasswordRequestForm
+ */
+
+/**
+ * [POST /login/] Autentica a un Cliente o Admin.
+ * CORRECCIÓN: Se usa FormData para evitar el error 422 de FastAPI.
+ */
+export async function loginCliente(credentials: { correo: string; contraseña: string }): Promise<any> {
+  // FastAPI con OAuth2PasswordRequestForm requiere este formato específico
+  const params = new URLSearchParams();
+  params.append('username', credentials.correo);
+  params.append('password', credentials.contraseña);
+
+  const response = await fetch('http://localhost:8000/login/', {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/x-www-form-urlencoded' 
+    },
+    body: params.toString(),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Credenciales incorrectas");
+  }
+
+  return response.json();
+}
 
 /**
  * [POST /tasks/group_create] Envía una tarea para crear un nuevo canal/grupo en Telegram.
@@ -338,3 +422,67 @@ export async function createClienteAPI(clientData: any) {
     }
     return response.json(); 
 }
+
+export const paymentApi = {
+  // Generar link de pago único (Preferencia)
+  createPreference: async (monto: number, descripcion: string, ref: string) => {
+    const response = await fetch(`${API_PAGOS_URL}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: descripcion,
+        quantity: 1,
+        unit_price: monto,
+        external_reference: ref
+      }),
+    });
+    return response.json();
+  },
+
+  // Generar un Plan de Suscripción recurrente
+  // CORRECCIÓN: Se ajustan los parámetros para que coincidan con el modelo del Backend
+  createPlan: async (planData: { 
+    reason: string, 
+    transaction_amount: number, 
+    payer_email: string, 
+    external_reference: string,
+    frequency?: number,
+    frequency_type?: string,
+    currency_id?: string
+  }) => {
+    const response = await fetch(`${API_PAGOS_URL}/plans`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reason: planData.reason,
+        transaction_amount: planData.transaction_amount,
+        payer_email: planData.payer_email,
+        external_reference: planData.external_reference,
+        frequency: planData.frequency || 1,
+        frequency_type: planData.frequency_type || "months",
+        currency_id: planData.currency_id || "ARS"
+      }),
+    });
+
+    if (!response.ok) {
+        const errorDetail = await response.json();
+        throw errorDetail; // Esto permite ver el error 422 detallado en la consola
+    }
+
+    return response.json();
+  }
+};
+
+// Obtener datos del cliente individual
+export const getClienteData = async (telegram_id: number): Promise<Cliente> => {
+    const response = await fetch(`${API_BASE}/cliente/?telegram_id=${telegram_id}`);
+    if (!response.ok) throw new Error("No se pudo obtener el cliente");
+    return response.json();
+};
+
+// Obtener transacciones vinculadas al cliente
+export const getTransaccionesCliente = async (telegram_id: number): Promise<any[]> => {
+    const response = await fetch(`${API_BASE}/transacciones/cliente?telegram_id=${telegram_id}`);
+    if (!response.ok) throw new Error("No se pudieron obtener las transacciones");
+    return response.json();
+};

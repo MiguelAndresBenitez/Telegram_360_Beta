@@ -1,354 +1,254 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { TrendingUp, DollarSign, Wallet, Link2, Plus } from 'lucide-react'
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar } from 'recharts'
-import { useDemo, useKPIs } from '@/demo/DemoProvider'
-import { Modal } from '@/components/Modal'
-import { useToast } from '@/components/Toast'
-import { downloadCSV } from '@/utils/csv'
-import { getMetricsResumen, getClientChannelMembersDetail } from '@/api/index' 
-import { useNavigate } from 'react-router-dom';
+import { Users, UserPlus, Search, FileDown, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import { useDemo } from '@/demo/DemoProvider'
 
-// Definición de tipos para el filtrado
 type Periodo = 'day' | 'week' | 'month' | 'year';
 
 export default function Clientes() {
-  const navigate = useNavigate(); 
+  const { state } = useDemo()
   
-  const { state, addCliente } = useDemo()
-  const { gananciaHoy, gastoHoy, balanceBilletera } = useKPIs()
-  const [filter, setFilter] = useState('')
-  const { push } = useToast()
-
-  // ESTADOS DE MÉTRICAS DETALLADAS
-  const [periodo, setPeriodo] = useState<Periodo>('day');
-  const [datosFiltrados, setDatosFiltrados] = useState<any[]>([]);
-  const [cargandoMetricas, setCargandoMetricas] = useState(false);
-  const [clienteFilter, setClienteFilter] = useState<number | 'all'>('all'); 
+  const [periodo, setPeriodo] = useState<Periodo>('day')
+  const [clienteFiltro, setClienteFiltro] = useState<string>('all')
+  const [canalFiltro, setCanalFiltro] = useState<string>('all')
   
-  const filtered = useMemo(() => state.clientes.filter(c => c.nombre.toLowerCase().includes(filter.toLowerCase())), [state.clientes, filter])
+  const [datosGrafico, setDatosGrafico] = useState<any[]>([])
+  const [reporteAudiencia, setReporteAudiencia] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
 
- // LÓGICA DE CANALES POR CLIENTE
-const canalesPorCliente = useMemo(() => {
-  const namesAndCount: Record<number, { count: number, names: string[] }> = {};
-  state.canales.forEach(canal => {
-      if (canal.clienteId) {
-          const id = canal.clienteId;
-          namesAndCount[id] = namesAndCount[id] || { count: 0, names: [] };
-          namesAndCount[id].count++;
-          namesAndCount[id].names.push(canal.nombre);
-      }
-  });
-  return namesAndCount;
-}, [state.canales]);
-
-
-// LÓGICA DE EXPORTACIÓN CSV (General)
-const dataForCSV = useMemo(() => {
-  return filtered.map(c => {
-      const canalData = canalesPorCliente[c.telegramId] || { count: 0, names: [] };
-      return {
-          "Cliente": c.nombre,
-          "Total Ventas": c.ventas,
-          "ROI (x)": c.roi.toFixed(2) + 'x',
-          "Balance ($)": c.balance.toLocaleString('es-AR'),
-          "Canales Poseídos (Nombres)": canalData.names.join(', ') || 'Ninguno', 
-          "Canales Poseídos (Conteo)": canalData.count,
-          "Telegram ID (PK)": c.telegramId, 
-          "VIP": c.esVip ? 'Sí' : 'No',
-          "Apellido": c.apellido || 'N/A',
-          "Info Bancaria": c.infoBancaria || 'N/A',
-      }
-  });
-}, [filtered, canalesPorCliente]);
-  
-  // LÓGICA DE CARGA DE MÉTRICAS FILTRADAS
   useEffect(() => {
-    async function fetchFilteredMetrics() {
-        setCargandoMetricas(true);
-        try {
-            // 🚨 CAMBIO: CALCULAR LÍMITE DE TIEMPO
-            const timeLimit = calculateTimeLimit(periodo);
-            
-            // 🚨 CAMBIO: ENVIAR LÍMITE DE TIEMPO A LA API
-            const apiMetricas = await getMetricsResumen(periodo, clienteFilter, 'all', timeLimit); 
-            
-            const newMetricas = apiMetricas.map((m: any) => ({
-                fecha: m.fecha,
-                "Nuevos Usuarios": m.nuevos_usuarios, 
-            }));
-            
-            setDatosFiltrados(newMetricas);
-        } catch (e) {
-            console.error("Error al recargar métricas filtradas:", e);
-            setDatosFiltrados([]);
-        } finally {
-            setCargandoMetricas(false);
-        }
-    }
-    
-    fetchFilteredMetrics();
-    
-  }, [periodo, clienteFilter]); 
-  
-  const clientesMetricasData = datosFiltrados;
-
-
-  // FUNCIÓN PARA EXPORTAR MIEMBROS DETALLADOS
-  const handleExportMembersDetail = useCallback(async (clienteId: number, clienteNombre: string) => {
-      if (!clienteId) return;
-
-      push(`Preparando exportación de miembros para ${clienteNombre}...`);
-
+    async function loadData() {
+      setLoading(true)
       try {
-          const data = await getClientChannelMembersDetail(clienteId); 
+        const targetId = clienteFiltro === 'all' 
+          ? (state.authenticatedClient?.telegram_id || state.authenticatedClient?.telegramId || state.clientes[0]?.telegramId) 
+          : parseInt(clienteFiltro);
+
+        if (!targetId) {
+          setLoading(false);
+          return;
+        }
+
+        const startISO = calculateTimeLimit(periodo);
+        
+        // 🛠️ FILTRO DE GRUPO VINCULADO AL GRÁFICO
+        const queryParams = new URLSearchParams({ 
+          group_by: 'day', 
+          cliente_telegram_id: targetId.toString() 
+        });
+
+        // Si hay un canal específico seleccionado, lo añadimos a la consulta
+        if (canalFiltro !== 'all') {
+          queryParams.append('canal_id', canalFiltro);
+        }
+        
+        const resM = await fetch(`http://localhost:8000/metricas/balance-neto?${queryParams}`);
+        const metricas = resM.ok ? await resM.json() : [];
+        
+        const cambiosMap: Record<string, number> = {};
+        metricas.forEach((m: any) => { 
+          const key = m.fecha.split('T')[0];
+          cambiosMap[key] = (cambiosMap[key] || 0) + m.nuevos_usuarios; 
+        });
+
+        const finalData = [];
+        let current = new Date(startISO);
+        let acumulado = 0;
+
+        // Base histórica
+        metricas.forEach((m: any) => {
+          if (new Date(m.fecha) < current) acumulado += m.nuevos_usuarios;
+        });
+
+        const hoy = new Date();
+        hoy.setHours(23, 59, 59, 999);
+
+        while (current <= hoy) {
+          const key = current.toISOString().split('T')[0];
+          const nextStep = new Date(current);
           
-          if (data.length === 0) {
-              push(`⚠️ El cliente ${clienteNombre} no tiene miembros suscritos a sus canales.`);
-              return;
+          if (periodo === 'day') nextStep.setDate(nextStep.getDate() + 1);
+          else if (periodo === 'week') nextStep.setDate(nextStep.getDate() + 7);
+          else if (periodo === 'month') nextStep.setMonth(nextStep.getMonth() + 1);
+          else nextStep.setFullYear(nextStep.getFullYear() + 1);
+
+          // Sumamos todos los días dentro del bloque (Arregla el error de 10 vs 7)
+          let tempDate = new Date(current);
+          while (tempDate < nextStep && tempDate <= hoy) {
+            const k = tempDate.toISOString().split('T')[0];
+            if (cambiosMap[k] !== undefined) acumulado += cambiosMap[k];
+            tempDate.setDate(tempDate.getDate() + 1);
           }
+          
+          finalData.push({ 
+            fecha: key, 
+            cantidad: Math.max(0, acumulado), 
+            label: formatDate(key, periodo) 
+          });
 
-          downloadCSV(`miembros_canales_${clienteNombre.replace(/\s/g, '_')}.csv`, data);
-          push(`✅ Exportación detallada completada para ${clienteNombre}.`);
+          current = nextStep;
+        }
+        setDatosGrafico(finalData);
 
-      } catch (e: any) {
-          push(`❌ Error al exportar miembros: ${e.message || 'Error de conexión o API'}`);
+        // Tabla de miembros
+        const resT = await fetch(`http://localhost:8000/cliente/${targetId}/miembros-csv`);
+        if (resT.ok) {
+          const data = await resT.json();
+          setReporteAudiencia(Array.isArray(data) ? data : []);
+        }
+      } catch (e) { 
+        console.error("Error en Clientes:", e); 
+      } finally { 
+        setLoading(false); 
       }
-  }, [push]);
+    }
+    loadData()
+  }, [periodo, clienteFiltro, canalFiltro, state.authenticatedClient]); // 🛠️ Dependencia canalFiltro añadida
 
+  const nuevosUltimaSemana = useMemo(() => {
+    const limite = new Date();
+    limite.setDate(limite.getDate() - 7);
+    return reporteAudiencia.filter(r => r.u_joined && r.u_joined !== 'N/D' && new Date(r.u_joined) >= limite).length;
+  }, [reporteAudiencia]);
+
+  const rows = useMemo(() => reporteAudiencia.filter(r =>
+    (!search || r.u_id.toString().includes(search) || r.u_name.toLowerCase().includes(search.toLowerCase())) &&
+    (canalFiltro === 'all' || r.c_id?.toString() === canalFiltro || r.c_name === canalFiltro)
+  ), [reporteAudiencia, search, canalFiltro]);
+
+  const handleExportCSV = () => {
+    if (!rows.length) return;
+    const headers = "ID_Telegram,Nombre,Email,Canal,Fecha_Ingreso,Estado";
+    const content = rows.map(r => `${r.u_id},${r.u_name},${r.u_mail},${r.c_name},${r.u_joined},${r.status}`).join("\n");
+    const blob = new Blob([`${headers}\n${content}`], { type: 'text/csv' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `reporte_audiencia.csv`;
+    link.click();
+  };
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Clientes</h1>
-          <p className="text-sm text-slate-600">Resumen general, métricas clave y accesos rápidos.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary"><Link2 className="mr-2 h-4 w-4"/>Crear link publicitario</Button>
-          
-          <Button onClick={() => navigate('/habilitacion')}>
-            <Plus className="mr-2 h-4 w-4"/>Nuevo cliente
-          </Button>
-        </div>
+    <div className="space-y-8 animate-in fade-in duration-500 pb-12 p-2 text-left">
+      <div className="border-b-2 border-slate-100 pb-4">
+        <h1 className="text-3xl font-black text-slate-950 tracking-tighter uppercase leading-none">Análisis de Audiencia</h1>
+        <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-2 italic">Reporte detallado de miembros y crecimiento por canal</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
-        <Kpi title="Ganancia de hoy" value={gananciaHoy} icon={<TrendingUp className="h-5 w-5" />} delta={+12}/>
-        <Kpi title="Gasto publicitario" value={gastoHoy} icon={<DollarSign className="h-5 w-5" />} delta={-5}/>
-        <Kpi title="Balance billetera" value={balanceBilletera} icon={<Wallet className="h-5 w-5" />} muted/>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <KpiSimple title="Audiencia Total" value={reporteAudiencia.length} icon={<Users size={24}/>} color="blue" />
+        <KpiSimple title="Nuevos (Últimos 7 días)" value={`+${nuevosUltimaSemana}`} icon={<UserPlus size={24}/>} color="emerald" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-        {/* GRÁFICA DETALLADA CON FILTRO DE CLIENTE */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between flex-wrap gap-2">
-              <span>📈 Crecimiento de Usuarios por Cliente ({periodo})</span>
-              
-              <div className="flex gap-2 text-sm font-normal">
-                {/* Filtro por Cliente (Usado para la separación/agrupación de la métrica) */}
-                <select
-                  className="border border-slate-300 rounded-xl text-sm px-2 py-1"
-                  value={clienteFilter}
-                  onChange={e => setClienteFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                  disabled={cargandoMetricas}
-                >
-                  <option value="all">Todos los Clientes</option>
-                  {state.clientes.map(cl => (
-                    <option key={cl.telegramId} value={cl.telegramId}>{cl.nombre}</option>
-                  ))}
-                </select>
+      <Card className="border-none shadow-2xl rounded-[32px] overflow-hidden bg-white border border-slate-100">
+        <CardHeader className="bg-slate-50 border-b border-slate-100 px-8 py-6 flex flex-row items-center justify-between gap-4">
+          <CardTitle className="text-[11px] font-black uppercase text-slate-900 tracking-widest" style={{ color: '#020617' }}>EVOLUCIÓN DE STOCK REAL</CardTitle>
+          <div className="flex flex-wrap gap-2">
+            <select className="text-[10px] font-black uppercase border-2 border-slate-100 rounded-xl px-4 bg-white h-10 outline-none shadow-sm text-slate-950" value={clienteFiltro} onChange={(e) => setClienteFiltro(e.target.value)}>
+              <option value="all">TODOS LOS CLIENTES</option>
+              {state.clientes.map(c => <option key={c.telegramId} value={c.telegramId}>{c.nombre.toUpperCase()}</option>)}
+            </select>
+            
+            <select className="text-[10px] font-black uppercase border-2 border-slate-100 rounded-xl px-4 bg-white h-10 outline-none shadow-sm text-slate-950" value={canalFiltro} onChange={(e) => setCanalFiltro(e.target.value)}>
+              <option value="all">TODOS LOS GRUPOS</option>
+              {/* Usamos un Map para asegurar IDs únicos de canales */}
+              {[...new Map(reporteAudiencia.map(item => [item.c_id || item.c_name, item.c_name])).entries()].map(([id, name]) => (
+                <option key={id} value={id}>{name.toUpperCase()}</option>
+              ))}
+            </select>
 
-                {/* BOTONES DE AGRUPACIÓN */}
-                <div className="flex gap-1">
-                  {['day', 'week', 'month', 'year'].map(p => (
-                      <Button 
-                          key={p} 
-                          size="sm" 
-                          variant={periodo === p ? 'default' : 'outline'}
-                          onClick={() => setPeriodo(p as Periodo)}
-                          disabled={cargandoMetricas}
-                      >
-                          {p.charAt(0).toUpperCase() + p.slice(1)}
-                      </Button>
-                  ))}
-                </div>
-              </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="h-64">
-            {cargandoMetricas ? (
-                <div className="h-full grid place-items-center text-slate-500 text-sm">Cargando métricas filtradas...</div>
-            ) : clientesMetricasData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={clientesMetricasData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="fecha" 
-                          // 🚨 CAMBIO: Aplicar el formateador de fechas
-                          tickFormatter={formatDate} 
-                          angle={periodo === 'day' ? -30 : 0} 
-                          textAnchor={periodo === 'day' ? 'end' : 'middle'} 
-                        />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="Nuevos Usuarios" stroke="#3b82f6" strokeWidth={2} />
-                    </LineChart>
-                </ResponsiveContainer>
-            ) : (
-                <div className="h-full grid place-items-center text-slate-500 text-sm">
-                    No hay datos disponibles para el filtro y periodo seleccionados.
-                </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Solicitudes de retiro (semana)</CardTitle></CardHeader>
-          <CardContent className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={state.retiros}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="cliente" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="monto" />
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="flex gap-2 mt-3 flex-wrap">
-              {state.retiros.map((s) => (
-                <Badge key={s.cliente} variant={s.estado === "Pagado" ? "default" : "secondary"}>{s.cliente}: {s.estado}</Badge>
+            <div className="flex gap-1 bg-slate-200/50 p-1.5 rounded-2xl shadow-inner border border-slate-200">
+              {[{k:'day', l:'7D'}, {k:'week', l:'8S'}, {k:'month', l:'6M'}, {k:'year', l:'5A'}].map((p) => (
+                <Button key={p.k} size="sm" variant={periodo === p.k ? 'default' : 'ghost'} className={`text-[10px] h-8 px-4 uppercase font-black rounded-xl transition-all ${periodo === p.k ? 'bg-[#0f172a] text-white shadow-md' : 'text-slate-500'}`} onClick={() => setPeriodo(p.k as Periodo)}>{p.l}</Button>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* TABLA DE CLIENTES Y EXPORTACIÓN CSV */}
-      <Card className="mt-4">
-        <CardHeader><CardTitle>Clientes activos ({filtered.length})</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2 mb-3">
-            <Input placeholder="Filtrar por nombre…" className="h-9 max-w-xs" value={filter} onChange={e=>setFilter(e.target.value)} />
-            
-            <Button variant="outline" className="h-9" onClick={()=>downloadCSV('clientes.csv', dataForCSV)}>Exportar CSV</Button>
           </div>
+        </CardHeader>
+        <CardContent className="h-80 pt-10 px-6">
+          {loading ? <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-slate-200" size={40}/></div> : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={datosGrafico} margin={{ bottom: 25 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#cbd5e1" />
+              <XAxis dataKey="label" tick={{fontSize: 11, fill: '#1e293b', fontWeight: '900'}} axisLine={false} tickLine={false} interval={0} dy={10} />
+              <YAxis tick={{fontSize: 11, fill: '#1e293b', fontWeight: '900'}} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)', fontWeight: '900'}} />
+              <Area type="stepAfter" dataKey="cantidad" stroke="#2563eb" strokeWidth={4} fillOpacity={0.1} fill="#2563eb" dot={{ r: 4, fill: '#2563eb', stroke: '#fff' }} name="Usuarios" />
+            </AreaChart>
+          </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-none shadow-2xl rounded-[32px] overflow-hidden bg-white border border-slate-100">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 p-8">
+          <div className="relative w-80">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <Input placeholder="BUSCAR POR NOMBRE O ID..." className="pl-12 bg-white border-2 border-slate-100 rounded-2xl h-14 text-sm font-black uppercase shadow-sm text-slate-950" value={search} onChange={(e) => setSearch(e.target.value)}/>
+          </div>
+          <Button variant="outline" className="rounded-2xl border-2 border-slate-100 text-[11px] font-black uppercase gap-2 h-14 px-8 hover:bg-slate-950 hover:text-white transition-all shadow-md active:scale-95" onClick={handleExportCSV}>
+            <FileDown size={18} /> EXPORTAR AUDIENCIA
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cliente</TableHead>
-                <TableHead className="text-right">Total ventas</TableHead>
-                <TableHead className="text-right">ROI</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right">Canales Poseídos</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
+            <TableHeader className="bg-slate-50">
+              <TableRow className="border-b border-slate-200">
+                <th className="px-10 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest text-left">Miembro (ID)</th>
+                <th className="px-10 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest text-left">Canal / Grupo</th>
+                <th className="px-10 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest text-right">Estado</th>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((c) => {
-                  const canalData = canalesPorCliente[c.telegramId] || { count: 0, names: [] };
-                  const limitedChannelNames = canalData.names.slice(0, 3);
-                  const displayChannels = limitedChannelNames.join(', ') + (canalData.count > 3 ? '...etc.' : '');
-                  
-                  return (
-                    <TableRow key={c.nombre}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-full bg-slate-200 grid place-items-center text-xs font-medium">{c.nombre.substring(0,2).toUpperCase()}</div>
-                            <div>
-                              <p className="font-medium leading-tight">{c.nombre}</p>
-                              <p className="text-xs text-slate-500">Canales asignados · {canalData.count || 0}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">{c.ventas}</TableCell>
-                        <TableCell className="text-right">{c.roi.toFixed(2)}x</TableCell>
-                        <TableCell className="text-right">$ {c.balance.toLocaleString("es-AR")}</TableCell>
-                        <TableCell className="text-right">
-                          <span className='text-xs text-slate-600'>{displayChannels || 'Ninguno'}</span> 
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                              size="sm" 
-                              variant="secondary" 
-                              onClick={() => handleExportMembersDetail(c.telegramId, c.nombre)}
-                          >
-                              Exportar Miembros
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                  );
-              })}
+              {rows.map((r, i) => (
+                <TableRow key={i} className="hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-all">
+                  <TableCell className="px-10 py-6"><div className="text-base font-black text-slate-950 uppercase tracking-tight leading-none mb-1">{r.u_name}</div><div className="text-[11px] text-slate-500 font-black italic">ID: {r.u_id}</div></TableCell>
+                  <TableCell className="px-10 py-6"><Badge className="text-[10px] uppercase bg-blue-100 text-blue-700 border-none font-black px-4 py-1 rounded-lg shadow-sm">{r.c_name.toUpperCase()}</Badge></TableCell>
+                  <TableCell className="px-10 py-6 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <span className={`text-[11px] font-black uppercase tracking-widest ${r.status === 'Al día' ? 'text-emerald-600' : 'text-red-600'}`}>{r.status}</span>
+                      {r.status === 'Al día' ? <CheckCircle size={18} className="text-emerald-500 stroke-[3]" /> : <AlertCircle size={18} className="text-red-500 stroke-[3]" />}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
-
     </div>
   )
 }
 
-function Kpi({ title, value, icon, delta, muted }:{ title: string; value: number; icon: React.ReactNode; delta?: number; muted?: boolean }) {
-// ... (Componente Kpi sin cambios)
-  const isUp = (delta ?? 0) >= 0
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-          <span className={`h-8 w-8 grid place-items-center rounded-xl ${muted ? 'bg-slate-100' : 'bg-emerald-100'}`}>{icon}</span>
-          {title}
-        </CardTitle>
-        {!muted && typeof delta === 'number' && (<Badge variant={isUp ? 'default' : 'secondary'}>{isUp ? '+' : ''}{delta}%</Badge>)}
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">$ {value.toLocaleString('es-AR')}</div>
-        {!muted && (<p className="text-xs text-slate-500 mt-1">vs día anterior</p>)}
-      </CardContent>
-    </Card>
-  )
+function calculateTimeLimit(p: Periodo): string {
+    const d = new Date(); d.setHours(0,0,0,0);
+    if (p === 'day') d.setDate(d.getDate() - 6);
+    else if (p === 'week') { d.setDate(d.getDate() - 7 * 7); }
+    else if (p === 'month') { d.setMonth(d.getMonth() - 5); d.setDate(1); }
+    else { d.setFullYear(d.getFullYear() - 4); d.setMonth(0); d.setDate(1); }
+    return d.toISOString();
 }
-// --------------------------------------------------------
-// --- LÓGICA DE FECHAS (DEBE IR AL FINAL DEL ARCHIVO) ---
-// --------------------------------------------------------
-function calculateTimeLimit(periodo: 'day' | 'week' | 'month' | 'year'): string {
-    const today = new Date();
-    let limitDate = new Date(today);
 
-    switch (periodo) {
-        case 'day':
-            limitDate.setDate(today.getDate() - 7); 
-            break;
-        case 'week':
-            limitDate.setDate(today.getDate() - (8 * 7)); 
-            break;
-        case 'month':
-            limitDate.setFullYear(today.getFullYear(), today.getMonth() - 12); 
-            break;
-        case 'year':
-            limitDate.setFullYear(today.getFullYear() - 5); 
-            break;
-    }
-    return limitDate.toISOString(); 
+function formatDate(v: string, p: Periodo) {
+    const d = new Date(v + 'T00:00:00Z');
+    if (p === 'year') return d.getUTCFullYear().toString();
+    if (p === 'month') return d.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '').toUpperCase();
+    return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '').toUpperCase();
 }
-function formatDate(tickItem: string | number): string {
-    const date = new Date(tickItem);
-    
-    if (isNaN(date.getTime()) || date.getFullYear() === 1970) {
-        return String(tickItem);
-    }
-    
-    if (date.toLocaleDateString('es-AR', { hour: '2-digit', minute: '2-digit' }) !== '24:00') {
-        return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
-    }
-    
-    if (date.getMonth() !== new Date().getMonth() || date.getDate() !== 1) {
-        return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
-    }
-    
-    return date.toLocaleDateString('es-AR', { year: 'numeric', month: 'short' });
+
+function KpiSimple({ title, value, icon, color }: any) {
+    const colors: any = { blue: 'bg-blue-100 text-blue-700', emerald: 'bg-emerald-100 text-emerald-700' }
+    return (
+        <Card className="border-none shadow-xl rounded-[28px] bg-white p-8 flex items-center gap-6 border border-slate-50 hover:shadow-2xl transition-all">
+            <div className={`h-16 w-16 rounded-3xl flex items-center justify-center shadow-inner ${colors[color]}`}>{icon}</div>
+            <div>
+                <p className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-1" style={{ color: '#020617' }}>{title}</p>
+                <p className="text-4xl font-black text-slate-950 tracking-tighter leading-none">{value}</p>
+            </div>
+        </Card>
+    )
 }

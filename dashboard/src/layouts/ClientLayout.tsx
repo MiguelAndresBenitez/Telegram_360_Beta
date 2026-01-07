@@ -1,9 +1,6 @@
-
 import React from 'react'
-import { Outlet, NavLink, Link } from 'react-router-dom'
-import { Home, MessageSquare, Wallet, BarChart3, Megaphone, Link2, ArrowLeft } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Home, MessageSquare, Wallet, BarChart3, Megaphone, Link2, LogOut } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useDemo } from '@/demo/DemoProvider'
 
@@ -17,65 +14,74 @@ const nav = [
 ]
 
 export default function ClientLayout() {
-  const { state, setClienteActual } = useDemo()
+  const { state, logout } = useDemo()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
+
+  // Inicial dinámica basada en el cliente seleccionado
+  const nombreParaDisplay = state.authenticatedClient?.nombre || state.clienteActual || 'C'
+  const inicial = nombreParaDisplay.charAt(0).toUpperCase()
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-white text-slate-900">
       <div className="grid grid-cols-[260px_1fr] grid-rows-[64px_1fr] min-h-screen">
-        <aside className="row-span-2 bg-white border-r border-slate-200 px-4 py-6">
-          <div className="flex items-center gap-2 px-2">
-            <div className="h-8 w-8 rounded-xl bg-slate-900 text-white grid place-items-center font-bold">C</div>
-            <div>
-              <p className="text-sm font-semibold leading-tight">Panel Cliente</p>
-              <p className="text-xs text-slate-500">Vista del cliente</p>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <label className="text-xs text-slate-600">Cliente</label>
-            <select className="w-full border border-slate-300 rounded-xl text-sm px-3 py-2 mt-1"
-              value={state.clienteActual} onChange={e=>setClienteActual(e.target.value)}>
-              {state.clientes.map(c => <option key={c.nombre}>{c.nombre}</option>)}
-            </select>
-          </div>
-
-          <nav className="mt-6 flex flex-col gap-1">
-            {nav.map(item => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/cliente'}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-slate-100 transition ${isActive ? 'bg-slate-900 text-white hover:bg-slate-900' : 'text-slate-700'}`
-                }
-              >
-                <span className="shrink-0">{item.icon}</span>
-                <span className="truncate">{item.label}</span>
-              </NavLink>
-            ))}
-            <div className="h-px bg-slate-200 my-3" />
-            <Link to="/" className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-              <ArrowLeft size={18}/> Volver a Admin
-            </Link>
-          </nav>
-        </aside>
-
-        <header className="col-start-2 h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6">
-          <div className="flex items-center gap-3 w-[520px]">
-            <Input placeholder="Buscar en tu panel…" className="h-9" />
-          </div>
-          <div className="flex items-center gap-4">
-            <Button variant="outline" asChild><Link to="/">Ver Admin</Link></Button>
-            <div className="flex items-center gap-2">
-              <Avatar className="h-8 w-8"><AvatarFallback>CL</AvatarFallback></Avatar>
-              <div className="leading-tight">
-                <p className="text-sm font-semibold">{state.clienteActual}</p>
-                <p className="text-[11px] text-slate-500">Cliente</p>
+        <aside className="row-span-2 bg-white border-r border-slate-100 px-4 py-8 flex flex-col justify-between shadow-sm">
+          <div>
+            <div className="flex items-center gap-3 px-3 mb-12">
+              {/* 🔵 CÍRCULO AZUL SÓLIDO (Mismo color que botones e iconos activos) */}
+              <div className="h-10 w-10 rounded-2xl bg-[#0f172a] shadow-lg shrink-0"></div>
+              <div>
+                {/* 📝 TEXTO EN NEGRO "CLIENTE" */}
+                <p className="text-sm font-black uppercase tracking-tighter leading-tight text-slate-950">CLIENTE</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mt-0.5">Control Panel</p>
               </div>
             </div>
+
+            <nav className="flex flex-col gap-1.5">
+              {nav.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/cliente'}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded-2xl px-4 py-3 text-[11px] font-black uppercase tracking-widest transition-all ${isActive ? 'bg-[#0f172a] text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`
+                  }
+                >
+                  <span className="shrink-0">{item.icon}</span>
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              ))}
+              <div className="h-px bg-slate-100 my-4" />
+              <button onClick={handleLogout} className="flex items-center gap-3 rounded-2xl px-4 py-3 text-[11px] font-black uppercase tracking-widest text-red-500 hover:bg-red-50 transition-all w-full text-left border-none">
+                <LogOut size={18}/> Salir
+              </button>
+            </nav>
+          </div>
+        </aside>
+
+        <header className="col-start-2 h-16 bg-white border-b border-slate-100 flex items-center justify-end px-8">
+          <div className="flex items-center gap-4">
+            <div className="text-right leading-none">
+              {/* 🟢 TEXTO EN NEGRO INTENSO */}
+              <p className="text-[11px] font-black text-slate-950 uppercase tracking-tighter leading-none">
+              {state.authenticatedClient?.nombre || 'PARTNER'}
+              </p>
+              <p className="text-[9px] font-black text-slate-400 uppercase mt-1 tracking-widest">Estado: Verificado</p>
+            </div>
+            {/* 🔵 AVATAR AZUL OSCURO CON LETRA BLANCA */}
+            <Avatar className="h-10 w-10 border-2 border-slate-100 shadow-md">
+              <AvatarFallback className="bg-[#0f172a] font-black text-white text-xs uppercase opacity-100 border-none">
+                {inicial}
+              </AvatarFallback>
+            </Avatar>
           </div>
         </header>
 
-        <main className="col-start-2 p-6">
+        <main className="col-start-2 p-8 bg-white">
           <Outlet />
         </main>
       </div>

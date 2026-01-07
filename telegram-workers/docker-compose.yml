@@ -1,6 +1,6 @@
-version: '3.3' # Cambiado a 3.3 para máxima compatibilidad
+version: '3.3' 
 services:
-  # 1. Servicio de Redis (base de datos de colas)
+  # 1. Servicio de Redis (se mantiene igual)
   redis:
     image: redis:7-alpine
     container_name: redis_queue
@@ -8,69 +8,77 @@ services:
       - "6380:6379"
     restart: unless-stopped
   
-  # 2. Worker: Group Manager (Creación de Canales)
+  # 2. Worker: Group Manager (CORREGIDO)
   group_manager:
     build: 
-      context: . # Usa el Dockerfile en la raíz
+      context: .
       dockerfile: Dockerfile
     container_name: telegram_group_manager
-    command: python workers/group_manager/group_manager.py
+    command: python group_manager/group_manager.py
     volumes:
-      - ./workers/.env:/app/.env
-      - ./workers/plataforma_session.session:/app/plataforma_session.session
+      # CORRECCIÓN CLAVE: Montar el directorio local 'workers' al WORKDIR del contenedor (/app).
+      # Esto permite que Telethon escriba sus archivos de sesión ÚNICOS
+      - ./workers:/app/
     environment:
-      REDIS_URL: "redis://redis:6379"
+      - REDIS_URL=redis://redis_queue:6379
+      # Sigue usando el nombre único para evitar el error 'database is locked'
+      - TG_SESSION=plataforma_session_group 
     depends_on:
       - redis
     restart: unless-stopped
 
-  # 3. Worker: Invitation Creator (Creación de Links de Invitación)
+  # 3. Worker: Invitation Creator (CORREGIDO)
   invitation_creator:
     build: 
       context: .
       dockerfile: Dockerfile
     container_name: telegram_invite_creator
-    command: python workers/channel_manager/invitation_creator.py
+    command: python channel_manager/invitation_creator.py
     volumes:
-      - ./workers/.env:/app/.env
-      - ./workers/plataforma_session.session:/app/plataforma_session.session
+      # CORRECCIÓN CLAVE
+      - ./workers:/app/
     environment:
-      REDIS_URL: "redis://redis:6379"
+      - REDIS_URL=redis://redis_queue:6379
+      - TG_SESSION=plataforma_session_invite 
     depends_on:
       - redis
     restart: unless-stopped
 
-  # 4. Worker: User Remover (Expulsión de Usuarios)
+  # 4. Worker: User Remover (CORREGIDO)
   user_remover:
     build: 
       context: .
       dockerfile: Dockerfile
     container_name: telegram_user_remover
-    command: python workers/channel_manager/user_remover.py
+    command: python channel_manager/user_remover.py
     volumes:
-      - ./workers/.env:/app/.env
-      - ./workers/plataforma_session.session:/app/plataforma_session.session
+      # CORRECCIÓN CLAVE
+      - ./workers:/app/
     environment:
-      REDIS_URL: "redis://redis:6379"
+      - REDIS_URL=redis://redis_queue:6379
+      - TG_SESSION=plataforma_session_remove
     depends_on:
       - redis
     restart: unless-stopped
       
-  # 5. Worker: Metrics Tracker (Rastreo de Métricas y Exportación)
+  # 5. Worker: Metrics Tracker (CORREGIDO)
   metrics_tracker:
     build: 
       context: .
       dockerfile: Dockerfile
     container_name: telegram_metrics_tracker
-    command: python workers/metrics_tracker/metrics_tracker.py
+    command: python metrics_tracker/metrics_tracker.py
     network_mode: "host"
     volumes:
-      - ./workers/.env:/app/.env
-      - ./workers/plataforma_session.session:/app/plataforma_session.session
+      # CORRECCIÓN CLAVE. Monta /workers al root para que pueda ver el .env y crear el archivo
+      - ./workers:/app/ 
       - metrics_reports:/app/reportes 
+    environment:
+      - REDIS_URL=redis://localhost:6380 
+      - TG_SESSION=plataforma_session_metrics
     restart: unless-stopped
 
-# Volúmenes para persistencia de datos (reportes)
+# Volúmenes (se mantienen igual)
 volumes:
   metrics_reports:
     driver: local

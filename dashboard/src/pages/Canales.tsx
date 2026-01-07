@@ -7,388 +7,253 @@ import { Badge } from '@/components/ui/badge'
 import { useDemo, Cliente, Canal } from '@/demo/DemoProvider' 
 import { useToast } from '@/components/Toast'
 import { Modal } from '@/components/Modal'
-// Importamos la función para enviar la tarea de invitación a Redis (backend)
-import { getCanalMiembros, removeUserTask, updateCanalOwner, create_invite_task } from '@/api/index' 
+import { getCanalMiembros, removeUserTask, updateCanalOwner } from '@/api/index' 
+import { Search, Gift, ShieldCheck, UserMinus, Loader2 } from 'lucide-react'
 
-// --- Tipos de Datos ---
-type CanalData = Canal; 
-
-type Miembro = {
-    telegram_id: number;
-    email: string;
-    first_name?: string;
-};
-
-
-// --- COMPONENTE PRINCIPAL ---
 export default function Canales() {
-  // 1. DECLARACIÓN DE TODOS LOS HOOKS (INCONDICIONALMENTE)
-  const { state, addCampaña, assignCanalCliente, isLoading } = useDemo() 
+  const { state, assignCanalCliente, isLoading } = useDemo() 
   const { push } = useToast()
   
-  // Hooks de Estado Local
   const [form, setForm] = useState({ canal: '', nombre: '', alias: '' })
-  
   const [modalOpen, setModalOpen] = useState(false);
-  const [canalSeleccionado, setCanalSeleccionado] = useState<CanalData | null>(null);
-  const [miembros, setMiembros] = useState<Miembro[]>([]);
+  const [canalSeleccionado, setCanalSeleccionado] = useState<Canal | null>(null);
+  const [miembros, setMiembros] = useState<any[]>([]);
   const [cargandoMiembros, setCargandoMiembros] = useState(false); 
   const [removiendoUsuario, setRemoviendoUsuario] = useState<number | null>(null);
   const [savingCanalId, setSavingCanalId] = useState<number | null>(null);
   
   const [searchTerm, setSearchTerm] = useState('');
-  // Nuevo estado para el tipo de link
-  const [linkType, setLinkType] = useState<'gratis' | 'pago'>('gratis'); 
   const [recipientId, setRecipientId] = useState('');
+  const [loadingInvite, setLoadingInvite] = useState(false);
 
-  // 2. HOOKS DE EFECTO (Manejo de inicialización de formulario)
   useEffect(() => {
-    // Solo inicializa el formulario si tenemos canales y el campo 'canal' aún está vacío
-    if (state.canales.length > 0 && form.canal === '') {
-      setForm(f => ({
-        ...f,
-        canal: state.canales[0].nombre
-      }));
+    if (state.canales?.length > 0 && form.canal === '') {
+      setForm(f => ({ ...f, canal: state.canales[0].nombre }));
     }
-  }, [state.canales]); 
+  }, [state.canales, form.canal]); 
 
-
-  // 3. HOOKS DE CÁLCULO (useMemo)
   const filteredCanales = useMemo(() => {
-    if (!searchTerm) {
-      return state.canales;
-    }
-    const lowerCaseSearch = searchTerm.toLowerCase();
-    return state.canales.filter(canal => 
-      canal.nombre.toLowerCase().includes(lowerCaseSearch) ||
-      (canal.clienteNombre && canal.clienteNombre.toLowerCase().includes(lowerCaseSearch))
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return state.canales || [];
+    return (state.canales || []).filter(canal => 
+      (canal.nombre && canal.nombre.toLowerCase().includes(term)) ||
+      (canal.clienteNombre && canal.clienteNombre.toLowerCase().includes(term))
     );
-  }, [state.canales, searchTerm, isLoading]);
+  }, [state.canales, searchTerm]);
 
-
-  // 4. HOOKS DE FUNCIONES (useCallback)
-  const handleVerMiembros = useCallback(async (canal: CanalData) => {
+  const handleVerMiembros = useCallback(async (canal: Canal) => {
     setCanalSeleccionado(canal);
     setModalOpen(true);
     setCargandoMiembros(true); 
-    setMiembros([]);
-
-    const canalId = canal.canal_id; 
-
-    if (canalId) {
-      try {
-        const data = await getCanalMiembros(canalId);
-        setMiembros(data);
-      } catch (e) {
-        push("Error al cargar la lista de miembros.");
-      } finally {
-        setCargandoMiembros(false);
-      }
-    } else {
-        push("ID de canal no encontrado en el estado.");
-        setCargandoMiembros(false);
+    try {
+      const data = await getCanalMiembros(canal.canal_id);
+      setMiembros(Array.isArray(data) ? data : []);
+    } catch (e) {
+      push("Error al cargar miembros.");
+    } finally {
+      setCargandoMiembros(false);
     }
   }, [push]);
   
   const handleRemoverUsuario = useCallback(async (userId: number) => {
-    if (!canalSeleccionado || !canalSeleccionado.canal_id) return;
-    
-    const confirmacion = window.confirm(`¿Está seguro de querer expulsar al usuario ID ${userId} del canal ${canalSeleccionado.nombre}?`); 
-    if (!confirmacion) return;
+    if (!canalSeleccionado) return;
+    if (!confirm(`¿Expulsar usuario ${userId}?`)) return;
 
     setRemoviendoUsuario(userId);
     try {
-      await removeUserTask({
-        channel_id: canalSeleccionado.canal_id, 
-        user_id: userId,
-      });
-      push(`Tarea de expulsión enviada para ${userId}.`);
-      
-      setMiembros(m => m.filter(m => m.telegram_id !== userId));
-
+      await removeUserTask({ channel_id: canalSeleccionado.canal_id, user_id: userId });
+      setMiembros(prev => prev.filter(m => m.telegram_id !== userId));
+      push(`✅ Tarea de expulsión enviada.`);
     } catch (e) {
-      push(`Error al expulsar a ${userId}.`);
+      push(`❌ Error al expulsar.`);
     } finally {
       setRemoviendoUsuario(null);
     }
   }, [canalSeleccionado, push]);
 
-
-  const handleAssignOwner = useCallback(async (canal: CanalData, newOwnerTelegramId: number) => {
-    
-    if (!canal.canal_id || !newOwnerTelegramId) {
-      push("Seleccione un cliente válido (Telegram ID).");
-      return;
-    }
-
+  const handleAssignOwner = useCallback(async (canal: Canal, newOwnerId: number) => {
     setSavingCanalId(canal.canal_id);
-
     try {
-      await updateCanalOwner(canal.canal_id, newOwnerTelegramId);
-      
-      assignCanalCliente(canal.nombre, newOwnerTelegramId); 
-
-      const newOwnerName = state.clientes.find((cl: Cliente) => cl.telegramId === newOwnerTelegramId)?.nombre || 'Desconocido';
-      push(`✅ Canal '${canal.nombre}' asignado a '${newOwnerName}'.`);
-
+      await updateCanalOwner(canal.canal_id, newOwnerId);
+      assignCanalCliente(canal.nombre, newOwnerId); 
+      push(`✅ Admin asignado correctamente`);
     } catch (e) {
-      const errorMessage = e instanceof Error 
-        ? e.message
-        : 'Error desconocido al guardar la asignación.';
-        
-      push(`❌ Error al asignar dueño: ${errorMessage}`);
-      console.error("Error API:", e);
+      push(`❌ Error en la asignación.`);
     } finally {
       setSavingCanalId(null);
     }
-  }, [push, state.clientes, assignCanalCliente]); 
+  }, [push, assignCanalCliente]); 
 
-  // >> FUNCIÓN PARA GENERAR LINK/INVITACIÓN
-  const handleGenerarLink = useCallback(async () => {
-    // Estas variables provienen de los estados del componente Canales.tsx
-    // (Asumimos que 'recipientId' y 'setRecipientId' están declarados como useState)
-    const clienteData = state.clientes.find(c => c.nombre === state.clienteActual);
-    const canalData = state.canales.find(c => c.nombre === form.canal);
-    
-    const isPaid = linkType === 'pago';
-    
-    // --- NUEVO: OBTENER Y VALIDAR EL ID DEL TERCERO ---
-    const recipientUserId = parseInt(recipientId); // Asumimos que recipientId es el string del input
-    
-    if (!clienteData || !canalData) {
-        push("❌ Error: Seleccione un cliente y canal válidos.");
-        return;
-    }
-    
-    // Nueva validación para el ID del destinatario
-    if (!recipientId || isNaN(recipientUserId)) {
-        push("❌ Error: Debe ingresar el ID de Telegram del destinatario (solo números).");
-        return;
-    }
-    // --- FIN NUEVA VALIDACIÓN ---
+  const handleInvitacionGratuita = useCallback(async () => {
+    const cliente = state.clientes.find(c => c.nombre === state.clienteActual);
+    const canal = state.canales.find(c => c.nombre === form.canal);
+    if (!cliente || !canal || !recipientId) return push("Complete todos los campos");
 
-    if (isPaid) {
-         push("⚠️ Función de link de pago no implementada. Generando link gratuito.");
-    }
-    
-    const clienteTelegramId = clienteData.telegramId;
-    const canalId = canalData.canal_id;
-
+    setLoadingInvite(true);
     try {
-        // 1. Opcional: Se omite la validación PUT aquí para ahorrar una llamada a la API,
-        // ya que el worker ADMIN es el que genera el link de forma directa.
+      const res = await fetch('http://localhost:8000/tasks/create_invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          canal_id: canal.canal_id,
+          user_telegram_id: parseInt(recipientId),
+          cliente_telegram_id: cliente.telegramId,
+          is_paid: false
+        })
+      });
+      if (res.ok) push("🎁 Invitación enviada con éxito");
+    } catch (e) { push("❌ Error al enviar invitación"); }
+    finally { setLoadingInvite(false); }
+  }, [state, form.canal, recipientId, push]);
 
-        // 2. TAREA CRÍTICA: Enviar tarea al worker de invitaciones
-        const response = await create_invite_task({ 
-            canal_id: canalId,
-            cliente_telegram_id: clienteTelegramId,
-            // >> MODIFICACIÓN CLAVE: Usamos el ID del TERCERO (recipientUserId)
-            user_telegram_id: recipientUserId, 
-            is_paid: isPaid 
-        });
+  if (isLoading) return <div className="h-screen flex items-center justify-center bg-white"><Loader2 className="animate-spin text-slate-900" size={32} /></div>
 
-        push(`✅ Tarea de invitación (${isPaid ? 'Pago' : 'Gratuita'}) enviada a Telegram ID ${recipientUserId}.`);
-        
-    } catch (error: any) {
-        push(`❌ Fallo al enviar la invitación: ${error.message}`);
-    }
-}, [state.clienteActual, form.canal, push, state.clientes, state.canales, linkType, recipientId]);
-
-
-  // 5. RETORNO CONDICIONAL DE CARGA
-  if (isLoading) {
-    return (
-        <div className="flex h-64 w-full items-center justify-center text-slate-500">
-            Cargando datos iniciales...
-        </div>
-    );
-  }
-
-
-  // 6. RENDERIZADO DEL COMPONENTE
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Canales</h1>
-      <p className="text-sm text-slate-600">Detectados desde archivados, asignación a cliente y generación de links de campaña.</p>
+    <div className="space-y-8 animate-in fade-in duration-500 pb-10 p-2 text-left">
+      <div className="border-b-2 border-slate-100 pb-4">
+          <h1 className="text-3xl font-black text-slate-950 tracking-tighter uppercase leading-none">Gestión de Canales</h1>
+          <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-2 italic">Administración de propiedad y accesos VIP</p>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Asignación de canales a clientes</CardTitle>
-            {/* Buscador de grupos (Lupa) */}
-            <Input 
-                placeholder="Buscar por nombre de canal o cliente..."
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* LISTADO DE CANALES */}
+        <Card className="lg:col-span-8 border-none shadow-2xl rounded-[32px] overflow-hidden bg-white border border-slate-100">
+          <CardHeader className="border-b border-slate-100 p-6 bg-slate-50/50">
+            <CardTitle className="text-[11px] font-black uppercase text-slate-950 tracking-widest flex items-center gap-2" style={{ color: '#020617' }}>
+              <ShieldCheck size={16} className="text-blue-600" /> ASIGNACIÓN DE ADMINISTRADORES
+            </CardTitle>
+            <div className="relative mt-5">
+              <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
+              <Input 
+                placeholder="BUSCAR CANAL O DUEÑO..." 
+                className="pl-12 h-12 bg-white border-2 border-slate-100 rounded-2xl shadow-sm font-black text-xs uppercase text-slate-950"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="mt-4"
-            />
+              />
+            </div>
           </CardHeader>
-          <CardContent>
-            {/* Contenedor con altura fija y scroll lateral (Cinta) */}
+          <CardContent className="p-0">
             <div className="max-h-[500px] overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Canal</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead className="text-right">Suscriptores</TableHead>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {/* Usamos la lista filtrada */}
-                    {filteredCanales.map((c: CanalData) => { 
-                      
-                      const currentOwnerId = c.clienteId || 0;
-                      const initialOwnerName = c.clienteNombre || '-- Sin asignar --';
-
-                      const [tempOwnerId, setTempOwnerId] = useState<number>(currentOwnerId);
-                      
-                      return (
-                        <TableRow key={c.canal_id}> 
-                          <TableCell className="font-medium">{c.nombre}</TableCell>
-                          <TableCell><Badge variant={c.tipo === 'VIP' ? 'default' : 'secondary'}>{c.tipo}</Badge></TableCell>
-                          <TableCell className="text-right">{c.suscriptores.toLocaleString('es-AR')}</TableCell>
-                          <TableCell>
-                            <select
-                              className="border border-slate-300 rounded-xl text-sm px-2 py-1"
-                              value={String(tempOwnerId)}
-                              onChange={e => setTempOwnerId(parseInt(e.target.value))}
+              <Table>
+                <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                  <TableRow className="border-b border-slate-200">
+                    <th className="px-8 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest">Canal</th>
+                    <th className="px-8 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest text-center">Usuarios</th>
+                    <th className="px-8 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest">Administrador</th>
+                    <th className="px-8 py-5 text-[10px] uppercase font-black text-slate-950 tracking-widest text-center">Acciones</th>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCanales.map((c) => {
+                    const currentId = c.clienteId || 0;
+                    return (
+                      <TableRow key={c.canal_id} className="hover:bg-slate-50 transition-all border-b border-slate-50">
+                        <td className="px-8 py-6 font-black text-slate-950 text-sm uppercase tracking-tight">{c.nombre}</td>
+                        <td className="px-8 py-6 text-center">
+                            <Badge className="bg-blue-600 text-white border-none font-black text-[10px] px-3 py-1 rounded-lg shadow-md">
+                                {c.suscriptores || 0}
+                            </Badge>
+                        </td>
+                        <td className="px-8 py-6">
+                          <select 
+                            className="w-full bg-slate-100 border-none rounded-xl text-[11px] font-black uppercase p-3 outline-none focus:ring-2 focus:ring-blue-500 shadow-inner text-slate-950"
+                            defaultValue={currentId}
+                            onChange={(e) => handleAssignOwner(c, parseInt(e.target.value))}
+                          >
+                            <option value={currentId}>{c.clienteNombre || '-- SIN ASIGNAR --'}</option>
+                            {state.clientes.map(cl => <option key={cl.telegramId} value={cl.telegramId}>{cl.nombre.toUpperCase()}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-8 py-6 text-center">
+                          <div className="flex justify-center gap-3">
+                            {/* 🛠️ BOTÓN ACTUALIZADO: Color azul oscuro y texto solicitado */}
+                            <button 
+                              onClick={() => {
+                                const select = document.querySelector(`select[defaultValue="${currentId}"]`) as HTMLSelectElement;
+                                handleAssignOwner(c, parseInt(select?.value || '0'));
+                              }}
+                              className="bg-[#0f172a] text-white text-[10px] font-black uppercase rounded-2xl px-6 h-11 hover:bg-black transition-all shadow-xl active:scale-95 tracking-widest border-none"
                             >
-                              
-                              {/* Opción por defecto (Dueño Actual) */}
-                              <option value={currentOwnerId}>{initialOwnerName}</option>
-                              
-                              {/* Opciones de otros clientes (incluye "Sin asignar" si currentOwnerId es 0) */}
-                              {currentOwnerId !== 0 && 
-                                <option value={0}>-- Sin asignar --</option>
-                              }
-
-                              {state.clientes
-                                // Excluimos el dueño actual solo si ya fue la opción por defecto (para evitar duplicados)
-                                .filter(cl => cl.telegramId !== currentOwnerId)
-                                .map((cl: Cliente) => 
-                                  <option key={cl.telegramId} value={cl.telegramId}>
-                                    {cl.nombre} ({cl.telegramId})
-                                  </option>
-                                )
-                              }
-                            </select>
-                          </TableCell>
-                          <TableCell className="text-right flex justify-end gap-2">
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
-                              onClick={() => handleAssignOwner(c, tempOwnerId)}
-                              disabled={savingCanalId === c.canal_id || tempOwnerId === 0 || tempOwnerId === currentOwnerId}
+                              ASIGNAR ADMIN
+                            </button>
+                            <button 
+                              onClick={() => handleVerMiembros(c)} 
+                              className="bg-[#0f172a] text-white text-[10px] font-black uppercase rounded-2xl px-6 h-11 hover:bg-black transition-all shadow-xl active:scale-95 tracking-widest"
                             >
-                              {savingCanalId === c.canal_id ? 'Guardando...' : 'Guardar Owner'}
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="default"
-                              onClick={() => handleVerMiembros(c as CanalData)}
-                            >
-                              Ver Miembros
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                              MIEMBROS
+                            </button>
+                          </div>
+                        </td>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>
 
-        {/* Sección para crear link de publicidad */}
-        <Card>
-          <CardHeader><CardTitle>Crear link de publicidad</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <label className="text-xs text-slate-600">Canal</label>
-              <select className="w-full border border-slate-300 rounded-xl text-sm px-3 py-2"
-                value={form.canal} onChange={e=>setForm({ ...form, canal: e.target.value })}>
-                {state.canales.map(c => 
-                  <option key={c.canal_id} value={c.nombre}>
-                    {c.nombre}
-                  </option>
-                )}
+        {/* INVITACIÓN VIP */}
+        <Card className="lg:col-span-4 border-none shadow-2xl rounded-[32px] bg-white self-start border border-slate-100 overflow-hidden">
+          <CardHeader className="border-b border-slate-100 p-8 bg-amber-50/30">
+            <CardTitle className="text-[11px] font-black uppercase text-amber-600 tracking-widest flex items-center gap-2">
+              <Gift size={18} /> INVITACIÓN GRATUITA
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-8 space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-950 ml-1" style={{ color: '#020617' }}>Seleccionar Canal</label>
+              <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl text-[11px] font-black uppercase p-4 outline-none shadow-sm focus:border-amber-500 transition-all text-slate-950"
+                value={form.canal} onChange={e => setForm({...form, canal: e.target.value})}>
+                {state.canales.map(c => <option key={c.canal_id} value={c.nombre}>{c.nombre.toUpperCase()}</option>)}
               </select>
             </div>
-            <div>
-              <label className="text-xs text-slate-600">Tipo de Link</label>
-              <select className="w-full border border-slate-300 rounded-xl text-sm px-3 py-2"
-                value={linkType} onChange={e => setLinkType(e.target.value as 'gratis' | 'pago')}>
-                <option value="gratis">Gratuito</option>
-                <option value="pago">De Pago (Próximamente)</option>
-              </select>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-950 ml-1" style={{ color: '#020617' }}>Telegram ID Usuario</label>
+              <Input placeholder="EJ: 54321234" value={recipientId} onChange={e => setRecipientId(e.target.value)} className="bg-slate-50 border-2 border-slate-100 rounded-2xl h-14 text-sm font-black px-6 focus:border-amber-500 shadow-sm text-slate-950"/>
             </div>
-            
-            {/* >> NUEVO CAMPO: ID de Telegram del Destinatario */}
-            <div>
-                <label className="text-xs text-slate-600">ID de Telegram del Destinatario</label>
-                <Input 
-                    placeholder="Ej: 123456789 (ID numérico)" 
-                    value={recipientId} 
-                    onChange={e => setRecipientId(e.target.value)} 
-                    // Nota: Si usas type="number" el valor recibido en onChange es siempre string en React.
-                    // Lo mantenemos como texto para evitar conflictos, pero el valor debe ser numérico.
-                />
-            </div>
-            
-            <div>
-              <label className="text-xs text-slate-600">Nombre de campaña</label>
-              <Input placeholder="Ej: Promo agosto Free A" value={form.nombre} onChange={e=>setForm({ ...form, nombre: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-600">Alias del link</label>
-              <Input placeholder="Ej: free-a-agosto" value={form.alias} onChange={e=>setForm({ ...form, alias: e.target.value })} />
-            </div>
-            <Button className="w-full" onClick={handleGenerarLink}>Generar Invitación</Button>
-            <p className="text-xs text-slate-500">* Esto crea un link trackeado por canal/campaña (demo) y envía la invitación al DM de tu cliente.</p>
+            {/* 🛠️ BOTÓN ACTUALIZADO: Color azul oscuro */}
+            <Button onClick={handleInvitacionGratuita} disabled={loadingInvite} className="w-full bg-[#0f172a] hover:bg-black h-14 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-2xl transition-all text-white mt-4">
+              {loadingInvite ? 'ENVIANDO...' : 'ENVIAR ACCESO VIP'}
+            </Button>
           </CardContent>
         </Card>
       </div>
 
       {/* MODAL DE MIEMBROS */}
-      <Modal 
-        open={modalOpen} 
-        onClose={() => setModalOpen(false)} 
-        title={`Miembros de ${canalSeleccionado?.nombre || 'Canal'}`} 
-      >
-        <div className="max-h-[70vh] overflow-y-auto">
-          {cargandoMiembros ? ( 
-            <div className="text-center text-slate-500">Cargando miembros...</div>
-          ) : miembros.length === 0 ? (
-            <div className="text-center text-slate-500">No se encontraron miembros para este canal.</div>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={`MIEMBROS: ${canalSeleccionado?.nombre.toUpperCase()}`}>
+        <div className="max-h-[50vh] overflow-y-auto p-4">
+          {cargandoMiembros ? (
+            <div className="flex flex-col items-center justify-center p-10 gap-3">
+               <Loader2 className="animate-spin text-blue-500" size={32} />
+               <p className="text-sm font-black text-slate-950 uppercase tracking-widest" style={{ color: '#020617' }}>Consultando Telegram...</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre (DB)</TableHead> 
-                  <TableHead>Telegram ID</TableHead>
-                  <TableHead>Email (DB)</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
+                <TableRow className="border-b-2 border-slate-100">
+                  <th className="text-[10px] uppercase font-black text-slate-950 pb-4 text-left tracking-widest">Nombre</th>
+                  <th className="text-[10px] uppercase font-black text-slate-950 pb-4 text-left tracking-widest">ID Telegram</th>
+                  <th className="text-[10px] uppercase font-black text-slate-950 text-center pb-4 tracking-widest">Acción</th>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {miembros.map((m) => (
-                  <TableRow key={m.telegram_id}>
-                    <TableCell className="font-medium">{m.first_name || 'N/A'}</TableCell> 
-                    <TableCell className="font-mono text-xs">{m.telegram_id}</TableCell>
-                    <TableCell>{m.email || 'N/A'}</TableCell>
-                    <TableCell className="text-right">
+                {miembros.map(m => (
+                  <TableRow key={m.telegram_id} className="border-slate-50 hover:bg-slate-50/50">
+                    <td className="py-4 text-sm font-black text-slate-950 uppercase">{m.first_name || 'Sin Nombre'}</td>
+                    <td className="py-4 text-xs font-bold text-slate-500">{m.telegram_id}</td>
+                    <td className="py-4 text-center">
                       <Button 
                         size="sm" 
-                        variant="secondary" 
+                        variant="ghost" 
                         onClick={() => handleRemoverUsuario(m.telegram_id)}
                         disabled={removiendoUsuario === m.telegram_id}
+                        className="text-red-500 hover:bg-red-600 hover:text-white rounded-xl text-[10px] font-black uppercase transition-all px-4 h-9 shadow-sm"
                       >
-                        {removiendoUsuario === m.telegram_id ? 'Expulsando...' : 'Expulsar'}
+                        {removiendoUsuario === m.telegram_id ? '...' : 'Expulsar'}
                       </Button>
-                    </TableCell>
+                    </td>
                   </TableRow>
                 ))}
               </TableBody>
