@@ -1,0 +1,360 @@
+================================================================================
+                    CONFIGURACIÓN PREVIA - TELEGRAM 360
+                         Template para el Cliente
+================================================================================
+
+Fecha: _____________________
+Cliente: _____________________
+Installer: _____________________
+
+================================================================================
+SECCIÓN 1: CONFIGURACIÓN DEL SERVIDOR
+================================================================================
+
+DOMINIO DEL SITIO:
+  Dominio Principal: ___________________________________
+  Dominio Alterno:   www.___________________________________
+  
+  Verificar: El dominio debe estar apuntando a la IP del servidor
+
+VERSIÓN DE PYTHON:
+  Verificar con: python3 --version
+  Versión requerida: 3.8+
+  Versión del servidor: ___________________________
+
+PUERTO DE LA APLICACIÓN:
+  Puerto Backend (API): 8000 (por defecto, no cambiar)
+  Puerto Frontend (Nginx): 80/443 (por defecto, no cambiar)
+  ¿Puertos adicionales?
+    [ ] No, usar puertos por defecto
+    [ ] Sí, especificar: ____________________
+
+================================================================================
+SECCIÓN 2: CREDENCIALES DE USUARIO DEL SITIO
+================================================================================
+
+USUARIO DEL SITIO (Para acceso al dashboard):
+  Usuario/Email: ___________________________________
+  Contraseña: laWHH3Bj2pQ0LMyX8hg4
+  
+  ⚠️ GUARDAR en gestor de contraseñas:
+     [ ] 1Password
+     [ ] LastPass
+     [ ] Bitwarden
+     [ ] Otro: ____________________
+
+================================================================================
+SECCIÓN 3: CREDENCIALES DE BASE DE DATOS
+================================================================================
+
+PostgreSQL - Usuario de Administración:
+  Usuario: minegocio_admin    [CAMBIAR_POR_cliente]
+  Contraseña: ___________________________________
+  Base de Datos: plataforma_canales
+
+  Generar contraseña fuerte (>15 chars):
+  $ python3 -c "import secrets; print(secrets.token_urlsafe(16))"
+
+PostgreSQL - Usuario de Aplicación (opcional):
+  Usuario: app_user
+  Contraseña: ___________________________________
+
+================================================================================
+SECCIÓN 4: CREDENCIALES DE MESSAGE BROKER
+================================================================================
+
+RabbitMQ - Usuario de Administración:
+  Usuario: minegocio_rabbit    [CAMBIAR_POR_cliente]
+  Contraseña: ___________________________________
+  
+  Generar contraseña fuerte (>15 chars):
+  $ python3 -c "import secrets; print(secrets.token_urlsafe(16))"
+
+URL de acceso RabbitMQ Admin:
+  http://dominio.com:15672
+  Usuario: [el que especificaste arriba]
+  Contraseña: [la que especificaste arriba]
+
+================================================================================
+SECCIÓN 5: CREDENCIALES DE TELEGRAM
+================================================================================
+
+BOT DE TELEGRAM:
+  ¿Ya existe un bot? [ ] Sí [ ] No
+
+  Si existe:
+    Token del Bot: ___________________________________
+    Nombre del Bot: ___________________________________
+    Descripción: ___________________________________
+
+  Si no existe, crear con @BotFather:
+    [ ] /start
+    [ ] /newbot
+    [ ] Nombre del bot: ___________________________________
+    [ ] Nombre de usuario: ___________________________________
+    [ ] Token generado: ___________________________________
+
+TELEGRAM API (my.telegram.org):
+  API ID: ___________________________________
+  API Hash: ___________________________________
+  
+  Pasos para obtener:
+  [ ] Ir a https://my.telegram.org
+  [ ] Login con cuenta de Telegram
+  [ ] API development tools
+  [ ] Create new application
+  [ ] Copiar App api_id
+  [ ] Copiar App api_hash
+
+================================================================================
+SECCIÓN 6: BACKEND (FastAPI)
+================================================================================
+
+BACKEND_URL (URL pública de la API):
+  Valor: https://___________________________________
+  
+  Debe ser igual al dominio principal
+
+SECRET_KEY (Clave secreta única):
+  Generar con: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+  Valor: ___________________________________
+
+DEBUG MODE:
+  [ ] Debug desactivado (RECOMENDADO - DEBUG=false)
+  [ ] Debug activado (SOLO PARA DESARROLLO)
+
+WORKERS (Procesos de FastAPI):
+  Cantidad: 2 (para 2 CPUs, NO CAMBIAR)
+  
+================================================================================
+SECCIÓN 7: FRONTEND (React)
+================================================================================
+
+REACT_APP_API_URL:
+  Valor: https://___________________________________/api
+  
+  Debe ser igual a BACKEND_URL + /api
+
+Ejemplo completo:
+  BACKEND_URL=https://minegocio.com
+  REACT_APP_API_URL=https://minegocio.com/api
+
+================================================================================
+SECCIÓN 8: SERVICIOS OPCIONALES
+================================================================================
+
+PAGOS (Opcional - Si usa PayVips):
+  [ ] Sí, configurar pagos
+  [ ] No, omitir esta sección
+
+  Si sí:
+    PAYVIPS_API_KEY: ___________________________________
+    PAYVIPS_SECRET: ___________________________________
+
+SMTP (Email):
+  [ ] Sí, configurar email
+  [ ] No, omitir esta sección
+  
+  Si sí:
+    SMTP_SERVER: ___________________________________
+    SMTP_PORT: ___________________________________
+    SMTP_USER: ___________________________________
+    SMTP_PASSWORD: ___________________________________
+    SMTP_FROM_EMAIL: ___________________________________
+
+================================================================================
+SECCIÓN 9: NGINX (Servidor Web)
+================================================================================
+
+NGINX CONFIGURACIÓN:
+  Dominio en nginx.conf: ___________________________________
+  
+  Cambiar en deploy/nginx.conf:
+  Buscar: server_name payvips.com www.payvips.com;
+  Por: server_name [TU_DOMINIO] www.[TU_DOMINIO];
+
+HTTPS (Let's Encrypt):
+  [ ] Sí, configurar HTTPS (RECOMENDADO)
+  [ ] No, solo HTTP
+  
+  Si sí:
+    Email para certificado: ___________________________________
+    Dominio: ___________________________________
+    Comando: bash setup-https.sh [DOMINIO] [EMAIL]
+
+================================================================================
+SECCIÓN 10: BACKUP Y SEGURIDAD
+================================================================================
+
+BACKUPS:
+  [ ] Backup diario de BD
+  [ ] Backup semanal completo
+  [ ] Almacenamiento externo
+
+  Ubicación de backups: ___________________________________
+  Contacto para alertas: ___________________________________
+
+SEGURIDAD:
+  [ ] SSH con clave (no contraseña)
+  [ ] Firewall habilitado (UFW)
+  [ ] Fail2ban instalado
+  [ ] Logs monitoreados
+
+SSH ACCESS:
+  Usuario: root o ___________________________________
+  Puerto: 22 o ___________________________________
+  Clave privada guardada en: ___________________________________
+
+================================================================================
+SECCIÓN 11: MONITOREO Y ALERTAS
+================================================================================
+
+MONITOREO:
+  [ ] Monitoreo de recursos habilitado
+  [ ] Alertas de CPU configuradas
+  [ ] Alertas de memoria configuradas
+  [ ] Alertas de disco configuradas
+
+  Comando para verificar recursos:
+  $ docker stats
+
+  Comando para ver logs:
+  $ docker-compose -f docker-compose.prod.yml logs -f backend
+
+CONTACTOS DE SOPORTE:
+  Técnico principal: ___________________________________
+  Email técnico: ___________________________________
+  Teléfono: ___________________________________
+  
+  Contacto cliente: ___________________________________
+  Email cliente: ___________________________________
+  Teléfono cliente: ___________________________________
+
+================================================================================
+SECCIÓN 12: CHECKLIST PRE-INSTALACIÓN
+================================================================================
+
+REQUISITOS DEL SERVIDOR:
+  [ ] Ubuntu 24.04 LTS instalado
+  [ ] 2 CPUs disponibles
+  [ ] 4GB RAM disponibles
+  [ ] 10GB+ espacio en disco
+  [ ] SSH accesible desde tu máquina
+  [ ] CloudPanel instalado y funcionando
+
+DNS Y DOMINIO:
+  [ ] Dominio comprado
+  [ ] DNS apuntando a IP del servidor
+  [ ] Verificar con: nslookup [DOMINIO]
+
+CREDENCIALES PREPARADAS:
+  [ ] Contraseña DB preparada
+  [ ] Contraseña RabbitMQ preparada
+  [ ] Token Telegram Bot obtenido
+  [ ] API ID y Hash de Telegram obtenidos
+  [ ] Email para certificado HTTPS definido
+
+DOCUMENTACIÓN COMPLETADA:
+  [ ] Esta sección rellenada completamente
+  [ ] Contraseñas guardadas en lugar seguro
+  [ ] Contactos de soporte definidos
+  [ ] Plan de backup establecido
+
+CÓDIGO DESCARGADO:
+  [ ] Repositorio clonado: git clone https://github.com/MiguelAndresBenitez/Telegram_360_Beta.git
+  [ ] Archivo .env.prod.example presente
+  [ ] Script check-requirements.sh presente
+  [ ] Documentación INSTALLATION_STEPS.txt presente
+
+================================================================================
+SECCIÓN 13: RESUMEN DE VALORES A CAMBIAR
+================================================================================
+
+Copiar estos valores y mantener a mano durante instalación:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ VALORES CRÍTICOS A CAMBIAR EN .env.prod                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ POSTGRES_USER=                    ________________________                │
+│ POSTGRES_PASSWORD=                ________________________                │
+│ RABBITMQ_USER=                    ________________________                │
+│ RABBITMQ_PASSWORD=                ________________________                │
+│ BACKEND_URL=https://              ________________________                │
+│ SECRET_KEY=                       ________________________                │
+│ TELEGRAM_BOT_TOKEN=               ________________________                │
+│ TELEGRAM_API_ID=                  ________________________                │
+│ TELEGRAM_API_HASH=                ________________________                │
+│ REACT_APP_API_URL=https://        ________________________/api             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+SECCIÓN 14: INSTALACIÓN PASO A PASO
+================================================================================
+
+Una vez completado esto, ejecutar en orden:
+
+PASO 1: Validar requisitos
+  root@servidor# chmod +x check-requirements.sh
+  root@servidor# ./check-requirements.sh
+  Resultado esperado: ✅ ¡SISTEMA LISTO PARA EL DESPLIEGUE!
+
+PASO 2: Crear .env.prod
+  root@servidor# cp .env.prod.example .env.prod
+  root@servidor# nano .env.prod
+  Pegar valores de la sección 13 arriba
+
+PASO 3: Compilar frontend
+  root@servidor# cd dashboard && npm ci && npm run build && cd ..
+
+PASO 4: Levantar servicios
+  root@servidor# docker-compose -f docker-compose.prod.yml up -d --build
+
+PASO 5: Verificar funcionamiento
+  root@servidor# docker-compose -f docker-compose.prod.yml ps
+  Todos deben estar en "Up"
+
+PASO 6: Configurar HTTPS
+  root@servidor# bash setup-https.sh [DOMINIO] [EMAIL]
+
+PASO 7: Acceder
+  Browser: https://[DOMINIO]
+  Credencial usuario: (de sección 2)
+  Credencial contraseña: laWHH3Bj2pQ0LMyX8hg4
+
+Ver archivo: INSTALLATION_STEPS.txt para detalles completos
+
+================================================================================
+FIRMA Y APROBACIÓN
+================================================================================
+
+COMPLETADO POR:
+  Nombre: ___________________________________
+  Fecha: ___________________________________
+  Email: ___________________________________
+
+REVISADO POR:
+  Nombre: ___________________________________
+  Fecha: ___________________________________
+  Email: ___________________________________
+
+APROBADO POR CLIENTE:
+  Nombre: ___________________________________
+  Fecha: ___________________________________
+  Email: ___________________________________
+
+NOTAS ADICIONALES:
+  ___________________________________
+  ___________________________________
+  ___________________________________
+
+================================================================================
+FIN DE CONFIGURACIÓN PREVIA
+================================================================================
+
+Una vez completado esto, está todo listo para la instalación.
+Ver: INSTALLATION_STEPS.txt para el proceso paso a paso.
+
+Versión: 1.0
+Fecha: Enero 2026
