@@ -1,11 +1,7 @@
-version: "3.8"
-
-# ⚠️ LIMITES DE RECURSOS PARA 4GB RAM TOTAL
-# PostgreSQL: 512MB | Redis: 256MB | RabbitMQ: 512MB | Backend: 1GB | Nginx: 128MB
-# = ~2.4GB, dejando 1.6GB para el SO y otras apps
+version: '3.8'
 
 services:
-  # ========== BASE DE DATOS ==========
+  # Postgres
   db:
     image: postgres:15-alpine
     restart: unless-stopped
@@ -13,51 +9,40 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      # Optimizaciones para 4GB RAM
-      POSTGRES_MAX_CONNECTIONS: 20
-      POSTGRES_SHARED_BUFFERS: 128MB
     volumes:
       - db_data:/var/lib/postgresql/data
-    mem_limit: 512m
-    memswap_limit: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ========== REDIS ==========
+  # Redis
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    mem_limit: 256m
-    memswap_limit: 256m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ========== RABBITMQ ==========
+  # RabbitMQ
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      # Límite de conexiones para recursos limitados
-      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: 0.5
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    mem_limit: 512m
-    memswap_limit: 512m
     ports:
       - "15672:15672"
 
-  # ========== BACKEND (FastAPI) ==========
+  # Backend (FastAPI)
   backend:
     build:
       context: ./plataforma_canales_back-main
@@ -67,9 +52,6 @@ services:
       - .env.prod
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${DB_PORT}/${POSTGRES_DB}
-      # Optimizaciones para recursos limitados
-      WORKERS: 2
-      WORKER_CLASS: uvicorn.workers.UvicornWorker
     depends_on:
       db:
         condition: service_healthy
@@ -79,16 +61,14 @@ services:
       - ./plataforma_canales_back-main/plataforma_canales_back-main:/app
     expose:
       - "8000"
-    mem_limit: 1g
-    memswap_limit: 1g
-    command: uvicorn routes:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn routes:app --host 0.0.0.0 --port 8000
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 5
 
-  # ========== TELEGRAM WORKERS ==========
+  # Workers (Telethon etc.)
   workers:
     build:
       context: ./telegram-workers
@@ -97,28 +77,24 @@ services:
     env_file:
       - .env.prod
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - backend
+      - redis
+      - rabbitmq
     volumes:
       - ./telegram-workers/workers:/app/workers
       - ./telegram-workers/plataforma_session.session:/app/plataforma_session.session
-    mem_limit: 768m
-    memswap_limit: 768m
 
-  # ========== FRONTEND (Nginx) ==========
+  # Frontend served by Nginx
   frontend:
     image: nginx:stable-alpine
     restart: unless-stopped
     volumes:
       - ./dashboard/dist:/usr/share/nginx/html:ro
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certs:/etc/letsencrypt:ro
     ports:
       - "80:80"
       - "443:443"
-    mem_limit: 128m
-    memswap_limit: 128m
     depends_on:
       - backend
 
@@ -126,3 +102,4 @@ volumes:
   db_data:
   redis_data:
   rabbitmq_data:
+  certs:
