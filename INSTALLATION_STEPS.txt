@@ -1,0 +1,429 @@
+================================================================================
+  TELEGRAM 360 - GUÍA PASO A PASO INSTALACIÓN EN CLOUDPANEL
+================================================================================
+
+PLATAFORMA: CloudPanel en Ubuntu 24.04
+RECURSOS: 2 CPU, 4GB RAM
+FECHA: Enero 2026
+ESTADO: PRODUCCIÓN LISTA
+
+================================================================================
+PASO 0: PREPARACIÓN PREVIA (ANTES DE CONECTAR AL SERVIDOR)
+================================================================================
+
+1. Descargar el código del servidor:
+   URL: https://github.com/MiguelAndresBenitez/Telegram_360_Beta
+   Opción A - Git: git clone https://github.com/MiguelAndresBenitez/Telegram_360_Beta.git
+   Opción B - ZIP: Descargar desde GitHub
+
+2. Verificar archivos necesarios:
+   ✓ docker-compose.prod.yml
+   ✓ deploy/nginx.conf
+   ✓ deploy.sh
+   ✓ setup-https.sh
+   ✓ check-requirements.sh
+   ✓ CLIENT_CONFIGURATION.txt
+   ✓ .env.prod.example
+
+3. Leer: CLIENT_CONFIGURATION.txt (5 minutos)
+   - Entender qué datos cambiar
+   - Preparar datos del cliente
+
+4. Obtener credenciales de Telegram:
+   Pasos en CLIENT_CONFIGURATION.txt sección "CREDENCIALES TELEGRAM"
+   - Bot Token de @BotFather
+   - API ID de https://my.telegram.org
+   - API Hash de https://my.telegram.org
+
+================================================================================
+PASO 1: CONECTAR AL SERVIDOR (5 minutos)
+================================================================================
+
+En tu máquina local:
+
+$ ssh root@IP_DEL_SERVIDOR
+# O con puerto custom
+$ ssh -p 2222 root@IP_DEL_SERVIDOR
+
+Si pide contraseña, introducir la del servidor CloudPanel.
+
+Una vez conectado, verás algo como:
+root@servidor:~#
+
+================================================================================
+PASO 2: DESCARGAR EL CÓDIGO (2 minutos)
+================================================================================
+
+Una vez en el servidor (después de ssh):
+
+root@servidor:~# mkdir -p /var/www
+root@servidor:~# cd /var/www
+root@servidor:/var/www# git clone https://github.com/MiguelAndresBenitez/Telegram_360_Beta.git telegram_360
+root@servidor:/var/www# cd telegram_360
+root@servidor:/var/www/telegram_360#
+
+Ahora estás en el directorio correcto con todo el código descargado.
+
+================================================================================
+PASO 3: VALIDAR REQUISITOS DEL SERVIDOR (3 minutos)
+================================================================================
+
+root@servidor:/var/www/telegram_360# chmod +x check-requirements.sh
+root@servidor:/var/www/telegram_360# ./check-requirements.sh
+
+Esperado: Verás una lista de verificaciones en verde con el resultado:
+✅ ¡SISTEMA LISTO PARA EL DESPLIEGUE!
+
+Si hay errores (❌):
+1. Leer el mensaje de error
+2. Instalar lo que falte (el script te dice cómo)
+3. Ejecutar de nuevo: ./check-requirements.sh
+
+================================================================================
+PASO 4: CONFIGURAR VARIABLES DE ENTORNO (10 minutos)
+================================================================================
+
+4.1 Crear archivo .env.prod:
+
+root@servidor:/var/www/telegram_360# cp .env.prod.example .env.prod
+root@servidor:/var/www/telegram_360# nano .env.prod
+
+4.2 Editar en nano (pegué el contenido de CLIENT_CONFIGURATION.txt):
+
+Busca cada línea que dice [CAMBIAR_POR_...] y reemplazala:
+
+═══════════════════════════════════════════════════════════════════════════════
+
+DATABASE:
+POSTGRES_USER=telegram_admin              👈 CAMBIAR: minegocio_admin
+POSTGRES_PASSWORD=TuContraseñaSegura123!  👈 CAMBIAR: Usar contraseña fuerte >15 chars
+
+RABBITMQ:
+RABBITMQ_USER=rabbitmq_admin              👈 CAMBIAR: minegocio_rabbit
+RABBITMQ_PASSWORD=OtraContraseñaSegura456! 👈 CAMBIAR: Usar contraseña fuerte >15 chars
+
+BACKEND:
+BACKEND_URL=https://tudominio.com         👈 CAMBIAR: https://cliente.com
+SECRET_KEY=tu-secret-key-super-seguro     👈 CAMBIAR: Generar aleatorio (30+ chars)
+
+TELEGRAM:
+TELEGRAM_BOT_TOKEN=123456:ABC-...         👈 CAMBIAR: Token obtenido de @BotFather
+TELEGRAM_API_ID=1234567                   👈 CAMBIAR: ID de my.telegram.org
+TELEGRAM_API_HASH=abcd1234567890efgh      👈 CAMBIAR: Hash de my.telegram.org
+
+FRONTEND:
+REACT_APP_API_URL=https://tudominio.com/api  👈 CAMBIAR: https://cliente.com/api
+
+═══════════════════════════════════════════════════════════════════════════════
+
+4.3 Guardar el archivo:
+
+En nano:
+Ctrl+X
+Y (yes)
+Enter
+
+Verificar que se guardó:
+root@servidor:/var/www/telegram_360# cat .env.prod
+# Deberías ver tus cambios reflejados
+
+================================================================================
+PASO 5: COMPILAR FRONTEND (10 minutos)
+================================================================================
+
+root@servidor:/var/www/telegram_360# cd dashboard
+root@servidor:/var/www/telegram_360/dashboard# npm ci
+root@servidor:/var/www/telegram_360/dashboard# npm run build
+
+Espera a que termine (verás "Build completed successfully" al final).
+
+Verificar que se compiló:
+root@servidor:/var/www/telegram_360/dashboard# ls -la dist/
+# Deberías ver archivos HTML, CSS, JS compilados
+
+Volver a la carpeta raíz:
+root@servidor:/var/www/telegram_360/dashboard# cd ..
+
+================================================================================
+PASO 6: DESPLEGAR SERVICIOS CON DOCKER (10 minutos)
+================================================================================
+
+6.1 Validar configuración docker-compose:
+
+root@servidor:/var/www/telegram_360# docker-compose -f docker-compose.prod.yml config
+# Deberías ver el archivo sin errores
+
+6.2 Levantar los servicios:
+
+root@servidor:/var/www/telegram_360# docker-compose -f docker-compose.prod.yml up -d --build
+
+Esto puede tomar 5-10 minutos en la primera vez (descargando imágenes).
+
+6.3 Esperar a que todo inicie:
+
+root@servidor:/var/www/telegram_360# sleep 30
+root@servidor:/var/www/telegram_360# docker-compose -f docker-compose.prod.yml ps
+
+Esperado (todos en estado "Up"):
+NAME          STATE
+db            Up (healthy)
+redis         Up (healthy)
+rabbitmq      Up
+backend       Up (healthy)
+workers       Up
+frontend      Up
+
+Si algo está "Restarting" o "Exit" espera 30s más y verifica de nuevo.
+
+================================================================================
+PASO 7: VERIFICAR QUE FUNCIONA (5 minutos)
+================================================================================
+
+7.1 Verificar que la BD está conectada:
+
+root@servidor:/var/www/telegram_360# docker-compose -f docker-compose.prod.yml exec db psql -U postgres -d plataforma_canales -c "SELECT 1;"
+# Esperado: (1 row) con "1"
+
+7.2 Verificar Redis:
+
+root@servidor:/var/www/telegram_360# docker-compose -f docker-compose.prod.yml exec redis redis-cli ping
+# Esperado: PONG
+
+7.3 Verificar API:
+
+root@servidor:/var/www/telegram_360# curl -s http://localhost/api/docs | head -20
+# Deberías ver HTML de Swagger docs
+
+7.4 Verificar Frontend:
+
+En navegador: http://IP_DEL_SERVIDOR o http://dominio.com
+# Deberías ver la interfaz del dashboard
+
+================================================================================
+PASO 8: CONFIGURAR HTTPS CON LET'S ENCRYPT (10 minutos)
+================================================================================
+
+⚠️ IMPORTANTE: El dominio debe apuntar al servidor ANTES de este paso.
+
+8.1 Verificar DNS:
+
+root@servidor:/var/www/telegram_360# nslookup cliente.com
+# Debe resolver a la IP del servidor
+
+8.2 Configurar HTTPS automáticamente:
+
+root@servidor:/var/www/telegram_360# bash setup-https.sh cliente.com admin@cliente.com
+
+Sigue los pasos que pide (generalmente solo Enter para aceptar términos).
+
+Esperado: "✅ HTTPS configurado"
+
+8.3 Verificar en navegador:
+
+https://cliente.com
+# Deberías ver el sitio con cerrado de seguridad verde
+
+================================================================================
+PASO 9: BACKUP Y DOCUMENTACIÓN (5 minutos)
+================================================================================
+
+9.1 Guardar credenciales del cliente en lugar seguro:
+
+Crear documento con:
+- Usuario/contraseña SSH
+- Usuario/contraseña PostgreSQL
+- Usuario/contraseña RabbitMQ
+- Token Telegram Bot
+- API ID y Hash
+- URLs de acceso
+
+9.2 Hacer backup de configuración:
+
+root@servidor:/var/www/telegram_360# mkdir -p ~/backups
+root@servidor:/var/www/telegram_360# cp .env.prod ~/backups/.env.prod.$(date +%Y%m%d)
+root@servidor:/var/www/telegram_360# cp deploy/nginx.conf ~/backups/nginx.conf.$(date +%Y%m%d)
+
+9.3 Verificación final de logs:
+
+root@servidor:/var/www/telegram_360# docker-compose -f docker-compose.prod.yml logs --tail=50 backend
+# Deberías ver logs sin errores críticos
+
+================================================================================
+PASO 10: MONITOREO POST-INSTALACIÓN (Semanal)
+================================================================================
+
+Comandos para revisar regularmente:
+
+# Ver estado de servicios
+docker-compose -f docker-compose.prod.yml ps
+
+# Ver uso de memoria/CPU
+docker stats
+
+# Ver logs de errores
+docker-compose -f docker-compose.prod.yml logs --tail=100 backend
+
+# Verificar espacio en disco
+df -h
+
+# Backup de base de datos (ejecutar cada semana)
+docker-compose -f docker-compose.prod.yml exec db pg_dump -U postgres plataforma_canales > ~/backups/backup_$(date +%Y%m%d_%H%M%S).sql
+
+================================================================================
+TROUBLESHOOTING RÁPIDO
+================================================================================
+
+Problema: "docker-compose: command not found"
+Solución: Usar "docker compose" en lugar de "docker-compose"
+  root@servidor# docker compose -f docker-compose.prod.yml ps
+
+Problema: "Port 80 already in use"
+Solución: Detener Apache u otro servicio
+  root@servidor# sudo systemctl stop apache2
+  root@servidor# sudo systemctl disable apache2
+
+Problema: "Out of memory"
+Solución: Reducir workers en docker-compose.prod.yml
+  Cambiar: command: uvicorn routes:app --host 0.0.0.0 --port 8000 --workers 2
+  Por: command: uvicorn routes:app --host 0.0.0.0 --port 8000 --workers 1
+
+Problema: "Connection refused" a PostgreSQL
+Solución: Esperar a que BD inicie y reiniciar
+  root@servidor# sleep 60
+  root@servidor# docker-compose -f docker-compose.prod.yml restart db
+
+Problema: "502 Bad Gateway"
+Solución: Verificar logs del backend
+  root@servidor# docker-compose -f docker-compose.prod.yml logs -f backend
+
+Problema: HTTPS no funciona (conexión no segura)
+Solución: Verificar que setup-https.sh se completó sin errores
+  root@servidor# sudo certbot certificates
+  # Debe mostrar tu certificado
+
+================================================================================
+URLS DE ACCESO FINAL
+================================================================================
+
+Frontend (Dashboard):
+  http://cliente.com (HTTP)
+  https://cliente.com (HTTPS) ✓ USAR ESTA
+
+API Documentation:
+  https://cliente.com/api/docs
+
+RabbitMQ Admin (opcional, solo para debugging):
+  http://cliente.com:15672
+  Usuario: rabbitmq_admin (o el que configuraste)
+  Contraseña: (la que configuraste)
+
+Database (SSH tunnel):
+  localhost:5432
+  Usuario: minegocio_admin (o el que configuraste)
+  Base: plataforma_canales
+
+================================================================================
+COMANDOS MÁS ÚTILES (Copiar y pegar)
+================================================================================
+
+Ver estado de todo:
+docker-compose -f docker-compose.prod.yml ps
+
+Ver logs en tiempo real del backend:
+docker-compose -f docker-compose.prod.yml logs -f backend
+
+Ver logs de los workers:
+docker-compose -f docker-compose.prod.yml logs -f workers
+
+Ver uso de recursos:
+docker stats
+
+Entrar a shell del backend:
+docker-compose -f docker-compose.prod.yml exec backend bash
+
+Ejecutar comando en la BD:
+docker-compose -f docker-compose.prod.yml exec db psql -U postgres -d plataforma_canales -c "SELECT * FROM usuarios LIMIT 5;"
+
+Reiniciar un servicio:
+docker-compose -f docker-compose.prod.yml restart backend
+
+Detener todo:
+docker-compose -f docker-compose.prod.yml down
+
+Volver a levantar (después de detener):
+docker-compose -f docker-compose.prod.yml up -d
+
+Ver certificado HTTPS:
+sudo certbot certificates
+
+Renovar certificado HTTPS:
+sudo certbot renew --dry-run
+
+Hacer backup completo de BD:
+docker-compose -f docker-compose.prod.yml exec db pg_dump -U postgres plataforma_canales > backup_completo_$(date +%Y%m%d).sql
+
+Ver espacio en disco:
+df -h
+
+Ver usuario de SSH/contraseña actual:
+cat /etc/passwd | grep -E "root|sudo"
+
+================================================================================
+CHECKLIST FINAL - ANTES DE ENTREGAR AL CLIENTE
+================================================================================
+
+✓ Todos los pasos 1-10 completados
+✓ Verificación en navegador: https://cliente.com carga correctamente
+✓ API docs accesible: https://cliente.com/api/docs
+✓ HTTPS funcionando (candado verde en navegador)
+✓ Certificado válido por >1 año
+✓ Base de datos con datos del cliente (si aplica)
+✓ Telegram bot conectado y funcionando
+✓ Workers de Telegram procesando correctamente
+✓ Sistema monitoreado (cron jobs para backups)
+✓ Credenciales guardadas en lugar seguro
+✓ Documentación de acceso entregada al cliente
+✓ Contacto de soporte establecido
+✓ Plan de backups diarios implementado
+✓ Alertas/monitoreo configuradas
+✓ Dashboard del cliente funcionando
+
+================================================================================
+DESPUÉS DE LA INSTALACIÓN
+================================================================================
+
+Operación Diaria:
+1. Revisar logs cada mañana
+2. Monitorear uso de recursos
+3. Responder a incidentes
+
+Semanal:
+1. Hacer backup de BD
+2. Revisar logs de errores
+3. Verificar certificados HTTPS
+
+Mensual:
+1. Limpiar datos antiguos (si aplica)
+2. Optimizar BD
+3. Revisar actualizaciones de Docker
+
+Anual:
+1. Renovar certificados HTTPS (automático con cron)
+2. Hacer revisión de seguridad
+3. Actualizar documentación
+
+================================================================================
+FIN DE LA INSTALACIÓN
+================================================================================
+
+Tiempo total estimado: 45-60 minutos
+Próximos pasos: Entregar acceso al cliente y documentación
+
+Soporte:
+- Contacto técnico: [TU CONTACTO]
+- Documentación: Ver archivos *.md en /var/www/telegram_360
+- Problemas: Ver sección TROUBLESHOOTING o logs
+
+¡Sistema instalado y listo para usar! 🚀
+
+================================================================================

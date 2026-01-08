@@ -1,0 +1,321 @@
+# 📋 CONFIGURACIÓN DEL CLIENTE - Variables a Cambiar
+
+## 🎯 IMPORTANTE
+Este archivo contiene TODAS las variables que debes cambiar con los datos REALES del cliente.
+
+Busca y reemplaza cada valor marcado con [CAMBIAR_POR_...] con los datos específicos del cliente.
+
+---
+
+## 📝 DATOS DEL CLIENTE (COMPLETAR)
+
+```
+Nombre del Cliente: _________________________________
+Dominio Principal: _________________________________
+Email de Contacto: _________________________________
+Teléfono/WhatsApp: _________________________________
+Fecha de Instalación: ______________________________
+```
+
+---
+
+## 🔧 VARIABLES A CAMBIAR EN .env.prod
+
+### 1. DATABASE (PostgreSQL)
+```
+POSTGRES_USER=telegram_admin              [CAMBIAR_POR_usuario_db_cliente]
+POSTGRES_PASSWORD=TuContraseñaSegura123!  [CAMBIAR_POR_contraseña_fuerte]
+POSTGRES_DB=plataforma_canales
+DB_PORT=5432
+```
+
+**Ejemplo para cliente "MiNegocio":**
+```
+POSTGRES_USER=minegocio_admin
+POSTGRES_PASSWORD=Mj#9$Kp@2xQ!8vLm
+```
+
+---
+
+### 2. REDIS
+```
+REDIS_URL=redis://redis:6379/0
+```
+⚠️ NO cambiar (ya está configurado internamente)
+
+---
+
+### 3. RABBITMQ
+```
+RABBITMQ_USER=rabbitmq_admin              [CAMBIAR_POR_usuario_rabbitmq_cliente]
+RABBITMQ_PASSWORD=OtraContraseñaSegura456![CAMBIAR_POR_contraseña_fuerte]
+```
+
+**Ejemplo:**
+```
+RABBITMQ_USER=minegocio_rabbit
+RABBITMQ_PASSWORD=Rb#5@pqX!9Lm$2kZ
+```
+
+---
+
+### 4. BACKEND (FastAPI)
+```
+BACKEND_URL=https://tudominio.com                [CAMBIAR_POR_https://cliente.com]
+SECRET_KEY=tu-secret-key-super-seguro            [CAMBIAR_POR_clave_aleatoria_larga]
+DEBUG=false
+```
+
+**Para generar SECRET_KEY fuerte (30+ caracteres aleatorios):**
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**Ejemplo:**
+```
+BACKEND_URL=https://minegocio.com
+SECRET_KEY=Aj7$kP2@mQ!9vLx$RtY#5wB8nM3jH6cZ
+```
+
+---
+
+### 5. TELEGRAM BOT (Obtener de @BotFather)
+```
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11  [CAMBIAR_POR_token_cliente]
+TELEGRAM_API_ID=1234567                                        [CAMBIAR_POR_api_id_cliente]
+TELEGRAM_API_HASH=abcd1234567890efgh                          [CAMBIAR_POR_hash_cliente]
+```
+
+**Cómo obtener:**
+1. Chat con @BotFather en Telegram
+2. Comando `/newbot`
+3. Seguir instrucciones → Copiar TOKEN
+4. Ir a https://my.telegram.org → API development tools
+5. Copiar API_ID y API_HASH
+
+---
+
+### 6. PAGOS (Si usa PayVips u otro)
+```
+PAYVIPS_API_KEY=tu-api-key        [CAMBIAR_POR_api_key_cliente]
+PAYVIPS_SECRET=tu-secret          [CAMBIAR_POR_secret_cliente]
+```
+
+---
+
+### 7. FRONTEND
+```
+REACT_APP_API_URL=https://tudominio.com/api    [CAMBIAR_POR_dominio_cliente]
+```
+
+**Ejemplo:**
+```
+REACT_APP_API_URL=https://minegocio.com/api
+```
+
+---
+
+## 🌐 ARCHIVOS A MODIFICAR EN SERVIDOR
+
+### 1. deploy/nginx.conf
+**Buscar y reemplazar:**
+
+```nginx
+server_name payvips.com www.payvips.com;
+```
+
+**Por:**
+```nginx
+server_name cliente.com www.cliente.com;
+```
+
+**Sección HTTPS (descomentar y cambiar):**
+```nginx
+ssl_certificate /etc/letsencrypt/live/payvips.com/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/payvips.com/privkey.pem;
+```
+
+**Por:**
+```nginx
+ssl_certificate /etc/letsencrypt/live/cliente.com/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/cliente.com/privkey.pem;
+```
+
+---
+
+### 2. docker-compose.prod.yml
+**Buscar y reemplazar (si es necesario):**
+```yaml
+POSTGRES_USER: ${POSTGRES_USER}
+POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+```
+✓ Ya está correctamente configurado para leer de .env.prod
+
+---
+
+## 📊 CHECKLIST DE CONFIGURACIÓN
+
+- [ ] POSTGRES_USER configurado
+- [ ] POSTGRES_PASSWORD establecida (>15 caracteres)
+- [ ] RABBITMQ_USER configurado
+- [ ] RABBITMQ_PASSWORD establecida (>15 caracteres)
+- [ ] BACKEND_URL apunta al dominio correcto del cliente
+- [ ] SECRET_KEY es único y aleatorio (>30 caracteres)
+- [ ] TELEGRAM_BOT_TOKEN obtenido y configurado
+- [ ] TELEGRAM_API_ID configurado
+- [ ] TELEGRAM_API_HASH configurado
+- [ ] REACT_APP_API_URL apunta al dominio del cliente
+- [ ] Dominio en nginx.conf actualizado
+- [ ] DNS apuntando al servidor del cliente
+
+---
+
+## 🔒 CONTRASEÑAS SEGURAS - Patrones
+
+**NUNCA usar:**
+- ❌ Palabras del diccionario
+- ❌ Números secuenciales (123456)
+- ❌ Nombres del cliente
+- ❌ Fechas de nacimiento
+
+**SÍ usar:**
+- ✅ Mínimo 15 caracteres
+- ✅ Mayúsculas, minúsculas, números, símbolos
+- ✅ Aleatorios: `python3 -c "import secrets; print(secrets.token_urlsafe(16))"`
+
+**Ejemplo bueno:**
+```
+Mj#9$Kp@2xQ!8vLm7nPo5rTs
+```
+
+---
+
+## 📱 CREDENCIALES TELEGRAM - Cómo obtener
+
+### Paso 1: Bot Token
+1. Abre Telegram y busca: `@BotFather`
+2. Escribe: `/newbot`
+3. Sigue instrucciones (nombre del bot, nombre de usuario)
+4. Copia el TOKEN generado
+
+**Formato:** `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`
+
+### Paso 2: API ID y HASH
+1. Ve a: https://my.telegram.org
+2. Login con tu cuenta (o la del cliente)
+3. Selecciona: `API development tools`
+4. Copia: `App api_id` y `App api_hash`
+
+**Guarda estos datos en lugar seguro (contraseñero del cliente).**
+
+---
+
+## 💾 ARCHIVO .env.prod - EJEMPLO COMPLETO
+
+```env
+# DATABASE
+POSTGRES_USER=minegocio_admin
+POSTGRES_PASSWORD=Mj#9$Kp@2xQ!8vLm
+POSTGRES_DB=plataforma_canales
+DB_PORT=5432
+
+# REDIS
+REDIS_URL=redis://redis:6379/0
+
+# RABBITMQ
+RABBITMQ_USER=minegocio_rabbit
+RABBITMQ_PASSWORD=Rb#5@pqX!9Lm$2kZ
+
+# BACKEND
+BACKEND_URL=https://minegocio.com
+SECRET_KEY=Aj7$kP2@mQ!9vLx$RtY#5wB8nM3jH6cZ
+DEBUG=false
+
+# TELEGRAM
+TELEGRAM_BOT_TOKEN=987654:XYZ-ABC123def456ghi789jkl012mno
+TELEGRAM_API_ID=9876543
+TELEGRAM_API_HASH=1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o
+
+# PAGOS (si aplica)
+PAYVIPS_API_KEY=pk_live_abc123xyz789
+PAYVIPS_SECRET=sk_live_xyz789abc123
+
+# FRONTEND
+REACT_APP_API_URL=https://minegocio.com/api
+```
+
+---
+
+## 🔐 ALMACENAMIENTO SEGURO
+
+### Crear documento para el cliente con:
+
+```
+================================================
+CREDENCIALES DE ACCESO - TELEGRAM 360
+Almacenado: [Fecha de instalación]
+================================================
+
+Dominio: minegocio.com
+Email Acceso: admin@minegocio.com
+
+SSH/SERVER:
+  Usuario: root o [usuario_ssh]
+  IP: [xxx.xxx.xxx.xxx]
+  Puerto: 22
+  Contraseña/Key: [almacenado en gestor de contraseñas]
+
+BASE DE DATOS (PostgreSQL):
+  Usuario: minegocio_admin
+  Contraseña: [SEGURA]
+  Base de Datos: plataforma_canales
+  Host: localhost:5432
+
+RABBITMQ:
+  Usuario: minegocio_rabbit
+  Contraseña: [SEGURA]
+  URL: http://dominio.com:15672
+
+TELEGRAM BOT:
+  Token: 987654:XYZ-ABC123def456ghi789jkl012mno
+  API ID: 9876543
+  API Hash: 1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o
+
+PANEL DE CONTROL: https://minegocio.com
+API DOCS: https://minegocio.com/api/docs
+
+Almacenar en: 1Password, LastPass, Bitwarden, etc.
+```
+
+---
+
+## ✅ VERIFICACIÓN FINAL
+
+Antes de desplegar, verificar:
+
+```
+[ ] .env.prod configurado con todos los valores del cliente
+[ ] nginx.conf actualizado con dominio del cliente
+[ ] TELEGRAM_BOT_TOKEN válido y funcionando
+[ ] POSTGRES_PASSWORD >15 caracteres
+[ ] RABBITMQ_PASSWORD >15 caracteres
+[ ] SECRET_KEY >30 caracteres aleatorios
+[ ] BACKEND_URL y REACT_APP_API_URL apuntan al mismo dominio
+[ ] DNS configurado apuntando al servidor
+[ ] Certificados de seguridad listos (o Certbot disponible)
+```
+
+---
+
+## 📞 REFERENCIAS
+
+- Guía de instalación: `CLOUDPANEL_DEPLOYMENT.md`
+- Paso a paso: `INSTALLATION_STEPS.txt`
+- Checklist: `DEPLOYMENT_CHECKLIST.md`
+- Troubleshooting: `QUICK_START.md`
+
+---
+
+**Versión**: 1.0
+**Última actualización**: Enero 2026
+**Status**: Template listo para cliente
