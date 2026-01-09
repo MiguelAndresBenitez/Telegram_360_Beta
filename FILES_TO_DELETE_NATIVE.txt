@@ -1,0 +1,255 @@
+================================================================================
+🗑️  ARCHIVOS A ELIMINAR PARA INSTALACIÓN NATIVA
+================================================================================
+
+Cuando despliegues en CloudPanel (nativo, sin Docker), elimina:
+
+================================================================================
+NIVEL 1: ELIMINAR INMEDIATAMENTE (Imprescindible)
+================================================================================
+
+❌ ARCHIVOS DOCKER - No usamos Docker
+
+docker-compose.yml          # Orquestación de contenedores
+docker-compose.prod.yml     # Configuración de producción Docker
+docker-compose.vps.yml      # Configuración VPS Docker
+Dockerfile                  # Imagen principal
+telegram-workers/Dockerfile # Workers Docker
+plataforma_canales_back-main/Dockerfile  # Backend Docker
+
+❌ ARCHIVOS GIT - No subimos .git
+
+.git/                       # Repositorio git completo
+.gitignore                  # Reglas de git
+.github/                    # Workflows de GitHub
+
+Comando para eliminar:
+
+rm -rf .git .github docker-compose*.yml plataforma_canales_back-main/Dockerfile telegram-workers/Dockerfile
+
+================================================================================
+NIVEL 2: ELIMINAR PARA PRODUCCIÓN (Recomendado)
+================================================================================
+
+❌ ARCHIVOS DE CACHÉ Y COMPILACIÓN
+
+node_modules/               # Dependencias npm (se instalarán en servidor)
+dashboard/dist/             # Frontend compilado (se generará en servidor)
+__pycache__/                # Caché Python
+*.pyc                       # Archivos compilados Python
+.pytest_cache/              # Caché de pytest
+
+Comando:
+
+find . -type d -name node_modules -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+find . -type f -name "*.pyc" -delete 2>/dev/null || true
+rm -rf dashboard/dist
+
+❌ ARCHIVOS SENSIBLES
+
+.env                        # Archivo local (no subir)
+.env.local                  # Variables locales
+.env.prod                   # NUNCA subir credenciales reales
+.env.dev                    # Configuración de desarrollo
+*.session                   # Sesiones de Telethon (generarlas en servidor)
+plataforma_session.session  # Sesión principal Telegram
+plataforma_session_invite.session
+plataforma_session_metrics.session
+
+Comando:
+
+rm -f .env .env.* *.session telegram-workers/**/*.session
+
+⚠️  Importante: Usar .env.prod.example como template
+
+================================================================================
+NIVEL 3: ELIMINAR PARA MINIMIZAR TAMAÑO (Opcional)
+================================================================================
+
+❌ ARCHIVOS DE DESARROLLO
+
+.venv/                      # Virtual environment local
+venv/                       # Otro nombre de venv
+env/                        # Otro nombre de env
+.idea/                      # IDE settings
+.vscode/                    # VS Code settings
+*.log                       # Archivos de log locales
+.DS_Store                   # macOS
+Thumbs.db                   # Windows
+
+❌ ARCHIVOS DE TEST
+
+tests/                      # Tests unitarios (opcional)
+*.test.js                   # Tests JavaScript
+test_*.py                   # Tests Python
+*_test.py
+
+❌ DOCUMENTACIÓN LOCAL
+
+docs/                       # Documentación local (opcional)
+*.md                        # Excepto README.md
+
+Comando:
+
+rm -rf .venv venv env .idea .vscode tests *.log .DS_Store Thumbs.db
+
+================================================================================
+SCRIPT COMPLETO - LIMPIAR TODO
+================================================================================
+
+Copia y pega en el servidor o máquina local:
+
+#!/bin/bash
+
+echo "🧹 Limpiando archivos innecesarios..."
+
+# Nivel 1: Docker y Git
+rm -rf .git .github docker-compose*.yml 
+find . -name "Dockerfile*" -delete
+
+# Nivel 2: Caché y compilación
+find . -type d -name node_modules -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+find . -type f -name "*.pyc" -delete 2>/dev/null || true
+rm -rf dashboard/dist
+
+# Nivel 2: Archivos sensibles
+rm -f .env .env.* *.session telegram-workers/**/*.session
+
+# Nivel 3: Desarrollo
+rm -rf .venv venv env .idea .vscode tests *.log .DS_Store Thumbs.db
+
+echo "✅ Limpieza completada"
+du -sh .
+
+================================================================================
+ESTRUCTURA FINAL ESPERADA
+================================================================================
+
+telegram_360/
+├── README_INSTALACION.txt        ✓ Guardar
+├── INSTALLATION_NATIVE.txt        ✓ Guardar
+├── TELETHON_SETUP.txt             ✓ Guardar
+├── CLIENT_CONFIGURATION.txt       ✓ Guardar
+├── install-native.sh              ✓ Guardar
+├── .env.prod.example              ✓ Guardar
+│
+├── dashboard/
+│   ├── package.json               ✓ Guardar
+│   ├── vite.config.ts             ✓ Guardar
+│   ├── src/                       ✓ Guardar
+│   └── dist/                      ❌ Eliminar (se genera)
+│
+├── plataforma_canales_back-main/
+│   ├── requirements.txt           ✓ Guardar
+│   ├── routes.py                  ✓ Guardar
+│   ├── models.py                  ✓ Guardar
+│   └── __pycache__/               ❌ Eliminar
+│
+├── telegram-workers/
+│   ├── workers/                   ✓ Guardar
+│   ├── requirements.txt           ✓ Guardar
+│   └── *.session                  ❌ Eliminar
+│
+├── deploy/
+│   ├── nginx_native.conf          ✓ Guardar (Nueva)
+│   ├── supervisord_native.conf    ✓ Guardar (Nueva)
+│   ├── README.md                  ✓ Guardar
+│   └── nginx.conf                 ⚠️  Opcional
+│
+├── medios_pago/                   ⚠️  Si aplica (opcional)
+│
+└── Archivos a ELIMINAR:
+    ❌ docker-compose.yml
+    ❌ docker-compose.prod.yml
+    ❌ docker-compose.vps.yml
+    ❌ .git/
+    ❌ .github/
+    ❌ node_modules/
+    ❌ *.session
+    ❌ .env (excepto .env.prod.example)
+
+================================================================================
+TAMAÑO ESPERADO DEL PROYECTO LIMPIO
+================================================================================
+
+Con todo limpio, el proyecto debe ocupar:
+
+Sin Docker files:                  ~5-10 MB
+Con archivos compilados (node_modules): ~200-300 MB
+
+Para servidor: Copiar sin node_modules (~5-10 MB)
+Luego instalar en servidor: npm ci (~200-300 MB)
+
+================================================================================
+CREAR ZIP PARA SERVIDOR (Opcional)
+================================================================================
+
+Desde tu máquina local:
+
+cd /path/to/telegram_360
+bash limpiar-archivos.sh    # Script anterior
+
+cd ..
+zip -r telegram_360_deploy.zip telegram_360/ \
+    -x "telegram_360/.git/*" \
+    "telegram_360/node_modules/*" \
+    "telegram_360/dashboard/dist/*" \
+    "telegram_360/**/__pycache__/*" \
+    "telegram_360/**/*.pyc" \
+    "telegram_360/*.session" \
+    "telegram_360/.env*" \
+    "telegram_360/.vscode/*" \
+    "telegram_360/.idea/*"
+
+# ZIP resultante: ~10-15 MB
+
+================================================================================
+VERIFICACIÓN ANTES DE DESPLEGAR
+================================================================================
+
+Checklist final antes de copiar al servidor:
+
+[ ] No hay archivos .git/
+[ ] No hay .env (excepto .env.prod.example)
+[ ] No hay node_modules/
+[ ] No hay *.session files
+[ ] No hay __pycache__/
+[ ] Archivos .sh son ejecutables (chmod +x)
+[ ] Todos los archivos en deploy/ existen
+[ ] .env.prod.example tiene placeholders
+[ ] README_INSTALACION.txt está presente
+[ ] install-native.sh está presente
+
+Verificar tamaño:
+
+du -sh telegram_360/    # Debe ser < 50 MB
+
+================================================================================
+COMANDOS RÁPIDOS
+================================================================================
+
+# Ver tamaño actual
+du -sh /ruta/telegram_360
+
+# Ver archivos grandes
+find /ruta/telegram_360 -type f -size +10M
+
+# Encontrar archivos .session
+find /ruta/telegram_360 -name "*.session"
+
+# Encontrar .env files
+find /ruta/telegram_360 -name ".env*"
+
+# Encontrar .git
+find /ruta/telegram_360 -type d -name ".git"
+
+# Contar archivos
+find /ruta/telegram_360 -type f | wc -l
+
+# Comprimir final
+tar -czf telegram_360.tar.gz --exclude='.git' --exclude='node_modules' --exclude='__pycache__' /ruta/telegram_360
+
+================================================================================

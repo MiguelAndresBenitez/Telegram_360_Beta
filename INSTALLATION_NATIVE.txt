@@ -1,0 +1,569 @@
+================================================================================
+🔧 INSTALACIÓN NATIVA EN CLOUDPANEL - PASO A PASO COMPLETO
+================================================================================
+
+Sistema: Ubuntu 24.04 + CloudPanel
+Instalación: Nativa (SIN Docker)
+Tiempo estimado: 30-45 minutos
+Dificultad: Media
+
+================================================================================
+PASO 1: PREPARACIÓN DEL SERVIDOR (5 minutos)
+================================================================================
+
+1.1 Conectar vía SSH
+
+$ ssh root@IP_SERVIDOR
+
+1.2 Actualizar sistema
+
+root@servidor:~# apt-get update
+root@servidor:~# apt-get upgrade -y
+
+1.3 Instalar dependencias base
+
+root@servidor:~# apt-get install -y \
+    python3.12 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    nodejs \
+    npm \
+    nginx \
+    postgresql \
+    postgresql-contrib \
+    postgresql-server-dev-all \
+    supervisor \
+    git \
+    curl \
+    wget \
+    build-essential \
+    libssl-dev \
+    libffi-dev
+
+1.4 Verificar versiones
+
+root@servidor:~# python3 --version          # Debe ser 3.12+
+root@servidor:~# node --version             # Debe ser 16+
+root@servidor:~# npm --version              # Debe ser 7+
+root@servidor:~# psql --version             # PostgreSQL 15+
+root@servidor:~# nginx -v                   # Nginx
+
+================================================================================
+PASO 2: CREAR USUARIO DE APLICACIÓN (5 minutos)
+================================================================================
+
+2.1 Crear usuario de app (no root)
+
+root@servidor:~# useradd -m -s /bin/bash telegramapp
+root@servidor:~# usermod -aG sudo telegramapp
+
+2.2 Cambiar a usuario de app
+
+root@servidor:~# su - telegramapp
+
+2.3 Crear estructura de directorios
+
+telegramapp@servidor:~$ mkdir -p ~/app/logs
+telegramapp@servidor:~$ mkdir -p ~/app/data
+telegramapp@servidor:~$ mkdir -p ~/app/backups
+
+2.4 Verificar permisos
+
+telegramapp@servidor:~$ ls -la ~/
+# Deberías ver carpetas app/, logs/, data/, etc.
+
+================================================================================
+PASO 3: DESCARGAR CÓDIGO (5 minutos)
+================================================================================
+
+3.1 Descargar desde GitHub
+
+telegramapp@servidor:~$ cd ~/app
+telegramapp@servidor:~/app$ git clone https://github.com/MiguelAndresBenitez/Telegram_360_Beta.git .
+
+3.2 Verificar estructura
+
+telegramapp@servidor:~/app$ ls -la
+# Deberías ver: dashboard/, plataforma_canales_back-main/, telegram-workers/, deploy/, etc.
+
+3.3 Limpiar archivos innecesarios
+
+telegramapp@servidor:~/app$ rm -rf .git .gitignore
+telegramapp@servidor:~/app$ rm -f docker-compose*.yml Dockerfile
+telegramapp@servidor:~/app$ find . -type d -name __pycache__ -exec rm -rf {} +
+telegramapp@servidor:~/app$ find . -type f -name "*.pyc" -delete
+
+================================================================================
+PASO 4: CREAR VIRTUAL ENVIRONMENT PYTHON (5 minutos)
+================================================================================
+
+4.1 Crear venv
+
+telegramapp@servidor:~/app$ python3 -m venv venv
+
+4.2 Activar venv
+
+telegramapp@servidor:~/app$ source venv/bin/activate
+
+# Deberías ver: (venv) telegramapp@servidor:~/app$
+
+4.3 Actualizar pip
+
+(venv) telegramapp@servidor:~/app$ pip install --upgrade pip setuptools wheel
+
+4.4 Instalar dependencias Python
+
+(venv) telegramapp@servidor:~/app$ pip install -r plataforma_canales_back-main/requirements.txt
+
+# Esto instalará: FastAPI, SQLAlchemy, Telethon, etc.
+# Esperar a que termine (puede tomar 2-3 minutos)
+
+4.5 Instalar Gunicorn (servidor WSGI)
+
+(venv) telegramapp@servidor:~/app$ pip install gunicorn
+
+4.6 Instalar dependencias de workers
+
+(venv) telegramapp@servidor:~/app$ pip install telethon pyrogram redis
+
+================================================================================
+PASO 5: CONFIGURAR BASE DE DATOS POSTGRESQL (5 minutos)
+================================================================================
+
+5.1 Cambiar a usuario PostgreSQL
+
+telegramapp@servidor:~/app$ sudo -u postgres psql
+
+5.2 Crear usuario de BD
+
+postgres=# CREATE USER telegram_admin WITH PASSWORD 'TuContraseñaSegura123!';
+postgres=# ALTER USER telegram_admin CREATEDB;
+
+5.3 Crear base de datos
+
+postgres=# CREATE DATABASE plataforma_canales OWNER telegram_admin;
+postgres=# GRANT ALL PRIVILEGES ON DATABASE plataforma_canales TO telegram_admin;
+
+5.4 Habilitar extensiones
+
+postgres=# \c plataforma_canales
+plataforma_canales=# CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+plataforma_canales=# \q
+
+5.5 Verificar conexión (volver a app)
+
+telegramapp@servidor:~/app$ psql -U telegram_admin -d plataforma_canales -h localhost -c "SELECT 1;"
+# Esperado: (1 row) con "1"
+
+5.6 Actualizar .env.prod con credenciales
+
+telegramapp@servidor:~/app$ cp .env.prod.example .env.prod
+telegramapp@servidor:~/app$ nano .env.prod
+
+# Cambiar en .env.prod:
+POSTGRES_USER=telegram_admin
+POSTGRES_PASSWORD=TuContraseñaSegura123!
+POSTGRES_DB=plataforma_canales
+DATABASE_URL=postgresql://telegram_admin:TuContraseñaSegura123!@localhost:5432/plataforma_canales
+
+================================================================================
+PASO 6: EJECUTAR MIGRACIONES DE BD (3 minutos)
+================================================================================
+
+6.1 Cambiar a directorio del backend
+
+(venv) telegramapp@servidor:~/app$ cd plataforma_canales_back-main
+
+6.2 Ejecutar migraciones
+
+(venv) telegramapp@servidor:~/app/plataforma_canales_back-main$ alembic upgrade head
+
+# Esperado: OK
+
+6.3 Volver a directorio raíz
+
+(venv) telegramapp@servidor:~/app/plataforma_canales_back-main$ cd ..
+
+================================================================================
+PASO 7: COMPILAR FRONTEND REACT (10 minutos)
+================================================================================
+
+7.1 Cambiar a directorio del dashboard
+
+(venv) telegramapp@servidor:~/app$ cd dashboard
+
+7.2 Instalar dependencias
+
+(venv) telegramapp@servidor:~/app/dashboard$ npm ci
+
+# Esperar a que termine (puede tomar 5-10 minutos)
+
+7.3 Compilar para producción
+
+(venv) telegramapp@servidor:~/app/dashboard$ npm run build
+
+# Esperado: "Build completed successfully"
+# Se creará carpeta: dist/
+
+7.4 Verificar build
+
+(venv) telegramapp@servidor:~/app/dashboard$ ls -la dist/
+# Deberías ver: index.html, assets/, etc.
+
+7.5 Volver a directorio raíz
+
+(venv) telegramapp@servidor:~/app/dashboard$ cd ..
+
+================================================================================
+PASO 8: CONFIGURAR NGINX (5 minutos)
+================================================================================
+
+8.1 Copiar configuración nginx
+
+telegramapp@servidor:~/app$ sudo cp deploy/nginx_native.conf /etc/nginx/sites-available/telegram360
+
+# (Si nginx_native.conf no existe, crear manualmente - ver sección NGINX_NATIVE.conf)
+
+8.2 Habilitar sitio
+
+root@servidor:~# sudo ln -s /etc/nginx/sites-available/telegram360 /etc/nginx/sites-enabled/
+
+8.3 Verificar sintaxis
+
+root@servidor:~# sudo nginx -t
+
+# Esperado: "successful" y "configuration file test is successful"
+
+8.4 Recargar nginx
+
+root@servidor:~# sudo systemctl reload nginx
+
+8.5 Verificar que nginx está corriendo
+
+root@servidor:~# sudo systemctl status nginx
+
+# Esperado: active (running)
+
+================================================================================
+PASO 9: CONFIGURAR SUPERVISOR PARA WORKERS (5 minutos)
+================================================================================
+
+9.1 Crear archivo de configuración supervisor
+
+root@servidor:~# sudo nano /etc/supervisor/conf.d/telegram360.conf
+
+# COPIAR TODO ESTO:
+
+[program:telegram-backend]
+command=/home/telegramapp/app/venv/bin/gunicorn \
+    --workers 2 \
+    --bind 0.0.0.0:8000 \
+    --timeout 120 \
+    --access-logfile /home/telegramapp/app/logs/access.log \
+    --error-logfile /home/telegramapp/app/logs/error.log \
+    -m 007 \
+    plataforma_canales_back-main.routes:app
+
+directory=/home/telegramapp/app
+user=telegramapp
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/home/telegramapp/app/logs/backend.log
+
+[program:telegram-workers]
+command=/home/telegramapp/app/venv/bin/python \
+    -m telegram_workers.workers.metrics_tracker.metrics_tracker
+
+directory=/home/telegramapp/app
+user=telegramapp
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/home/telegramapp/app/logs/workers.log
+
+[group:telegram]
+programs=telegram-backend,telegram-workers
+
+9.2 Actualizar supervisor
+
+root@servidor:~# sudo supervisorctl reread
+root@servidor:~# sudo supervisorctl update
+root@servidor:~# sudo supervisorctl status
+
+# Esperado: telegram:telegram-backend RUNNING y telegram:telegram-workers RUNNING
+
+================================================================================
+PASO 10: CONFIGURAR REDIS (2 minutos)
+================================================================================
+
+10.1 Instalar Redis
+
+root@servidor:~# apt-get install -y redis-server
+
+10.2 Configurar Redis
+
+root@servidor:~# sudo nano /etc/redis/redis.conf
+
+# Cambiar líneas:
+maxmemory 256mb
+maxmemory-policy allkeys-lru
+appendonly yes
+
+10.3 Habilitar Redis
+
+root@servidor:~# sudo systemctl enable redis-server
+root@servidor:~# sudo systemctl restart redis-server
+
+10.4 Verificar Redis
+
+root@servidor:~# redis-cli ping
+# Esperado: PONG
+
+================================================================================
+PASO 11: CONFIGURAR TELETHON - SESIONES (CRÍTICO) (5 minutos)
+================================================================================
+
+⚠️ IMPORTANTE: LAS SESIONES DE TELETHON
+
+Las .session files contienen credenciales y deben:
+1. Ser generadas EN EL SERVIDOR (no subidas por seguridad)
+2. O copiadas desde tu máquina local
+
+OPCIÓN A: Generar sesiones EN EL SERVIDOR (Recomendado)
+
+11.1 Crear script de inicialización
+
+telegramapp@servidor:~/app$ cat > init_telegram_session.py << 'EOF'
+from telethon import TelegramClient
+import os
+
+# Obtener valores de .env.prod
+api_id = os.getenv('TELEGRAM_API_ID')
+api_hash = os.getenv('TELEGRAM_API_HASH')
+
+# Crear cliente (genera session file)
+client = TelegramClient('plataforma_session', api_id, api_hash)
+
+print("Conectando a Telegram...")
+client.start()
+print("Sesión creada exitosamente!")
+print(f"Archivo: plataforma_session.session")
+EOF
+
+11.2 Ejecutar (activar venv primero)
+
+(venv) telegramapp@servidor:~/app$ source venv/bin/activate
+(venv) telegramapp@servidor:~/app$ python init_telegram_session.py
+
+# Seguir instrucciones en terminal (verificación 2FA si aplica)
+
+OPCIÓN B: Copiar .session file desde tu máquina local
+
+11.3 Copiar archivo local al servidor
+
+# EN TU MÁQUINA LOCAL:
+$ scp plataforma_session.session root@IP_SERVIDOR:/home/telegramapp/app/
+
+# O subir manualmente a través de CloudPanel File Manager
+
+11.4 Verificar archivo
+
+telegramapp@servidor:~/app$ ls -la plataforma_session.session
+# Deberías ver el archivo
+
+11.5 Dar permisos
+
+telegramapp@servidor:~/app$ chmod 600 plataforma_session.session
+
+================================================================================
+PASO 12: VERIFICAR QUE TODO FUNCIONA (5 minutos)
+================================================================================
+
+12.1 Verificar Frontend
+
+root@servidor:~# curl -s http://localhost | head -20
+# Deberías ver HTML
+
+12.2 Verificar API
+
+root@servidor:~# curl -s http://localhost/api/docs | head -20
+# Deberías ver Swagger documentation
+
+12.3 Verificar base de datos
+
+root@servidor:~# psql -U telegram_admin -d plataforma_canales -c "SELECT COUNT(*) FROM information_schema.tables;"
+
+12.4 Verificar Redis
+
+root@servidor:~# redis-cli ping
+# Esperado: PONG
+
+12.5 Ver logs
+
+root@servidor:~# sudo tail -100 /home/telegramapp/app/logs/backend.log
+root@servidor:~# sudo tail -100 /home/telegramapp/app/logs/workers.log
+
+12.6 Ver estado de servicios
+
+root@servidor:~# sudo supervisorctl status
+# Esperado: Todos en RUNNING
+
+================================================================================
+PASO 13: CONFIGURAR HTTPS CON CERTBOT (5 minutos)
+================================================================================
+
+13.1 Instalar Certbot
+
+root@servidor:~# apt-get install -y certbot python3-certbot-nginx
+
+13.2 Obtener certificado
+
+root@servidor:~# sudo certbot --nginx -d cliente.com -d www.cliente.com --email admin@cliente.com
+
+13.3 Verificar en navegador
+
+https://cliente.com
+
+# Deberías ver cerrado de seguridad verde
+
+13.4 Configurar renovación automática
+
+root@servidor:~# sudo systemctl enable certbot.timer
+root@servidor:~# sudo systemctl start certbot.timer
+
+================================================================================
+PASO 14: CONFIGURAR MONITOREO Y MANTENIMIENTO (5 minutos)
+================================================================================
+
+14.1 Ver logs en tiempo real
+
+root@servidor:~# tail -f /home/telegramapp/app/logs/backend.log
+
+14.2 Restart de servicios si es necesario
+
+root@servidor:~# sudo supervisorctl restart telegram:telegram-backend
+root@servidor:~# sudo supervisorctl restart telegram:telegram-workers
+
+14.3 Ver uso de recursos
+
+root@servidor:~# top -p $(pgrep -f gunicorn)
+
+14.4 Backup de base de datos
+
+root@servidor:~# sudo -u postgres pg_dump plataforma_canales > /home/telegramapp/app/backups/backup_$(date +%Y%m%d_%H%M%S).sql
+
+14.5 Configurar cron para backups automáticos
+
+root@servidor:~# sudo crontab -e
+
+# Agregar al final:
+0 2 * * * sudo -u postgres pg_dump plataforma_canales > /home/telegramapp/app/backups/backup_$(date +\%Y\%m\%d).sql
+
+================================================================================
+PASO 15: CHECKLIST FINAL (5 minutos)
+================================================================================
+
+✅ Verificación POST-INSTALACIÓN:
+
+[ ] Servidor actualizado (apt-get update/upgrade)
+[ ] Usuario telegramapp creado
+[ ] Python 3.12+ instalado
+[ ] Virtual environment creado y activado
+[ ] Dependencias Python instaladas
+[ ] Base de datos PostgreSQL creada
+[ ] Migraciones ejecutadas
+[ ] Frontend compilado (dist/ existe)
+[ ] Nginx configurado y corriendo
+[ ] Supervisor configurado con 2 servicios
+[ ] Redis instalado y corriendo
+[ ] Sesiones de Telethon creadas/copiadas
+[ ] HTTPS configurado
+[ ] Todos los servicios en RUNNING
+[ ] Frontend accesible en https://cliente.com
+[ ] API docs en https://cliente.com/api/docs
+[ ] Backups configurados
+
+================================================================================
+URLS DE ACCESO FINAL
+================================================================================
+
+Frontend:       https://cliente.com
+API Docs:       https://cliente.com/api/docs
+Logs Backend:   /home/telegramapp/app/logs/backend.log
+Logs Workers:   /home/telegramapp/app/logs/workers.log
+Database:       postgresql://telegram_admin:pass@localhost:5432/plataforma_canales
+Redis:          redis://localhost:6379/0
+
+================================================================================
+COMANDOS ÚTILES (Guardar para después)
+================================================================================
+
+# Ver estado de todos los servicios
+sudo supervisorctl status
+
+# Reiniciar backend
+sudo supervisorctl restart telegram:telegram-backend
+
+# Reiniciar workers
+sudo supervisorctl restart telegram:telegram-workers
+
+# Ver logs en tiempo real
+tail -f /home/telegramapp/app/logs/backend.log
+
+# Hacer backup de BD
+sudo -u postgres pg_dump plataforma_canales > backup.sql
+
+# Restaurar backup
+psql -U telegram_admin -d plataforma_canales < backup.sql
+
+# Ver procesos Python
+ps aux | grep gunicorn
+
+# Ver conexiones activas
+netstat -an | grep ESTABLISHED
+
+# Reiniciar Nginx
+sudo systemctl reload nginx
+
+# Ver error de Nginx
+sudo nginx -t
+
+# Ver certificado HTTPS
+sudo certbot certificates
+
+================================================================================
+TIEMPO TOTAL ESTIMADO
+================================================================================
+
+Preparación:           5 min
+Usuario + estructura:  5 min
+Descargar código:      5 min
+Virtual env:           5 min
+BD PostgreSQL:         5 min
+Migraciones:           3 min
+Frontend:             10 min
+Nginx:                 5 min
+Supervisor:            5 min
+Redis:                 2 min
+Telethon:              5 min
+Verificación:          5 min
+HTTPS:                 5 min
+────────────────────────────
+TOTAL:               65 minutos
+
+(Pero la mayoría es espera pasiva - tiempo real: ~30 min)
+
+================================================================================
+PRÓXIMOS PASOS
+================================================================================
+
+1. Crear archivo de configuración nginx_native.conf (si no existe)
+2. Crear archivo supervisord.conf personalizado
+3. Actualizar .env.prod con valores reales
+4. Ejecutar paso a paso
+5. Verificar checklist final
+6. Sistema listo en producción
+
+================================================================================
