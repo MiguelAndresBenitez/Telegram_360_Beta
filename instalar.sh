@@ -78,16 +78,17 @@ start_bg(){
   fi
 }
 
-# 4) Backend: Gunicorn (si está el módulo FastAPI)
-if [ -f "plataforma_canales_back-main/routes.py" ]; then
-  GUNICORN_BIN="$VENV/bin/gunicorn"
-  if [ -x "$GUNICORN_BIN" ]; then
-    start_bg "gunicorn" "$GUNICORN_BIN" --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 --chdir "$APP_DIR" plataforma_canales_back-main.routes:app
+# 4) Backend: arrancar wrapper que carga routes.py por ruta (evita problemas con nombres de carpeta)
+# Usamos deploy/run_backend.py dentro del repo
+if [ -f "plataforma_canales_back-main/plataforma_canales_back-main/routes.py" ]; then
+  RUN_WRAPPER="$APP_DIR/deploy/run_backend.py"
+  if [ -f "$RUN_WRAPPER" ]; then
+    start_bg "backend" "$VENV/bin/python" "$RUN_WRAPPER"
   else
-    log "gunicorn no instalado en venv; intentando instalado via pip..."
-    pip install gunicorn uvicorn >/dev/null 2>&1 || true
-    start_bg "gunicorn" "$VENV/bin/gunicorn" --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 --chdir "$APP_DIR" plataforma_canales_back-main.routes:app
+    log "ERROR: No se encontró $RUN_WRAPPER - no puedo arrancar el backend"
   fi
+else
+  log "No se encontró routes.py en la ruta esperada; saltando arranque de backend"
 fi
 
 # 5) Workers (telegram-workers) - detectar, arrancar y reintentar si alguno cae
