@@ -90,21 +90,67 @@ if [ -f "plataforma_canales_back-main/routes.py" ]; then
   fi
 fi
 
-# 5) Workers (telegram-workers) - arrancar script(s) existentes
+# 5) Workers (telegram-workers) - detectar, arrancar y reintentar si alguno cae
 if [ -d "telegram-workers" ]; then
-  # Ejemplo: metrics_tracker
-  if [ -f "telegram-workers/workers/metrics_tracker/metrics_tracker.py" ]; then
-    start_bg "workers_metrics" "$VENV/bin/python" telegram-workers/workers/metrics_tracker/metrics_tracker.py
+  log "Detectando workers en telegram-workers/workers/..."
+
+  # Recolectar todos los scripts .py (excluyendo __init__.py)
+  mapfile -t WORKER_SCRIPTS < <(find telegram-workers/workers -type f -name "*.py" ! -name "__init__.py" 2>/dev/null)
+
+  if [ ${#WORKER_SCRIPTS[@]} -eq 0 ]; then
+    log "No se encontraron workers en telegram-workers/workers/"
   fi
 
-  # Otros workers: intentar arrancar todos los .py en telegram-workers/workers/
-  for w in telegram-workers/workers/*; do
-    if [ -d "$w" ]; then
-      mainpy="$w/$(basename "$w").py"
-      if [ -f "$mainpy" ]; then
-        name="worker_$(basename "$w")"
-        start_bg "$name" "$VENV/bin/python" "$mainpy"
+  # Intentar arrancar cada script; generar nombre único para pidfile
+  for f in "${WORKER_SCRIPTS[@]}"; do
+    # Normalizar ruta
+    fpath="$f"
+    shortname=$(basename "$fpath" .py)
+    hash=$(echo -n "$fpath" | md5sum | cut -d' ' -f1)
+    name="worker_${shortname}_${hash}"
+    start_bg "$name" "$VENV/bin/python" "$fpath"
+  done
+
+  # Comprobación y reintentos (2 reintentos adicionales por worker)
+  sleep 2
+  for pidfile in "$RUN_DIR"/worker_*.pid; do
+    [ -f "$pidfile" ] || continue
+    pid=$(cat "$pidfile" 2>/dev/null || true)
+    if [ -z "$pid" ] || ! kill -0 "$pid" >/dev/null 2>&1; then
+      logfile="$APP_DIR/logs/$(basename "$pidfile" .pid).log"
+      attempts=0
+      started=false
+      while [ $attempts -lt 3 ]; do
+        attempts=$((attempts+1))
+        log "Worker $(basename "$pidfile" .pid) no está corriendo; intento $attempts/3 de reinicio"
+        # Intentar relanzar basándonos en el nombre del script (buscamos el script original en la lista)
+        base=$(basename "$pidfile" .pid)
+        # Encontrar script que fue lanzado con ese hash
+        fmatch=$(printf "%s\n" "${WORKER_SCRIPTS[@]}" | grep "$(echo "$base" | sed -E 's/^worker_([^_]+)_([0-9a-f]+)$/\1/\2/')" || true)
+        # Si no encontramos por grep directo, relanzamos por fichero asociado más simple: buscar por shortname
+        if [ -z "$fmatch" ]; then
+          short=$(echo "$base" | cut -d'_' -f2)
+          fmatch=$(printf "%s\n" "${WORKER_SCRIPTS[@]}" | grep "/${short}.py$" || true)
+        fi
+        if [ -z "$fmatch" ]; then
+          log "No pude identificar script original para $base; marcar para revisión"
+          break
+        fi
+        # Lanzar de nuevo
+        start_bg "$base" "$VENV/bin/python" "$fmatch"
+        sleep 2
+        pid=$(cat "$pidfile" 2>/dev/null || true)
+        if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+          log "$(basename "$pidfile" .pid) reiniciado correctamente"
+          started=true
+          break
+        fi
+      done
+      if [ "$started" = false ]; then
+        log "ERROR: $(basename "$pidfile" .pid) no pudo reiniciarse tras $attempts intentos"
       fi
+    else
+      log "$(basename "$pidfile" .pid) corriendo (pid $pid)"
     fi
   done
 fi
