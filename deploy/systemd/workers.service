@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram360 Workers Manager (lanza todos los workers y los re-arranca)
+After=network.target
+
+[Service]
+User=payvips
+Group=payvips
+WorkingDirectory=/home/payvips/htdocs/payvips.com
+Environment=PATH=/home/payvips/htdocs/payvips.com/venv/bin
+ExecStart=/home/payvips/htdocs/payvips.com/venv/bin/python /home/payvips/htdocs/payvips.com/deploy/run_workers_manager.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

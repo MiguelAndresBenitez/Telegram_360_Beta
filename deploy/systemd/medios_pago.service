@@ -1,0 +1,15 @@
+[Unit]
+Description=Medios de Pago Service - Telegram360
+After=network.target
+
+[Service]
+User=payvips
+Group=payvips
+WorkingDirectory=/home/payvips/htdocs/payvips.com
+Environment=PATH=/home/payvips/htdocs/payvips.com/venv/bin
+ExecStart=/home/payvips/htdocs/payvips.com/venv/bin/python /home/payvips/htdocs/payvips.com/medios_pago/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

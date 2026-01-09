@@ -1,0 +1,17 @@
+[Unit]
+Description=Telegram360 Backend (uvicorn via run_backend.py)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+User=payvips
+Group=payvips
+WorkingDirectory=/home/payvips/htdocs/payvips.com
+Environment=PATH=/home/payvips/htdocs/payvips.com/venv/bin
+ExecStart=/home/payvips/htdocs/payvips.com/venv/bin/python /home/payvips/htdocs/payvips.com/deploy/run_backend.py
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
